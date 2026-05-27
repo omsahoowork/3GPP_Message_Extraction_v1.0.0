@@ -33,7 +33,7 @@ os.environ["OLLAMA_API_KEY"]        = os.getenv("OLLAMA_API_KEY", "")
 
 # ── Model / retrieval config ──────────────────────────────────────────────────
 EMBED_MODEL                      = "voyageai/voyage-4-nano"
-MODEL_CACHE_DIR                  = str(BASE_DIR.parent.parent / "models")
+MODEL_CACHE_DIR                  = str(BASE_DIR.parent / "models")
 VECTORSTORE_DIR                  = str(BASE_DIR / "vectorstore")
 CHUNKS_DIR                       = str(BASE_DIR / "chunks")
 COLLECTION_NAME                  = "multiple_spec"
