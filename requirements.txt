@@ -30,6 +30,8 @@ langchain-huggingface
 langchain-groq
 langchain-anthropic
 langchain-neo4j
+langchain-openai
+langchain-ollama
 neo4j
 dotenv
 langgraph
