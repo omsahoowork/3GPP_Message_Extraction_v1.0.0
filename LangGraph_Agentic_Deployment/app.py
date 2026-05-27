@@ -270,10 +270,47 @@ if snapshot is not None and not snapshot.awaiting_selection:
             st.markdown("### Sequence Diagram")
             st.image(seq_diagram, use_container_width=True)
 
-        seq_csv = str(result.get("sequence_csv_file", "")).strip()
-        if seq_csv and Path(seq_csv).exists():
-            st.markdown(f"[Download CSV]({seq_csv})")
+        # Prefer streaming `message_sequence` to the client as CSV (built from in-memory result)
+        message_sequence = result.get("message_sequence", []) or []
+        if message_sequence:
+            import io
+            import csv
+            import json
 
+            output = io.StringIO()
+            writer = csv.writer(output)
+            # header row
+            writer.writerow(["cell_id", "direction", "layer", "name", "message_parameters"])
+
+            for item in message_sequence:
+                cell_id = item.get("cell_id", "")
+                direction = item.get("direction", "")
+                layer = item.get("layer", "")
+                name = item.get("name", "")
+                params = item.get("message_parameters", [])
+                params_str = json.dumps(params, ensure_ascii=False)
+                writer.writerow([cell_id, direction, layer, name, params_str])
+
+            csv_bytes = output.getvalue().encode("utf-8")
+            suggested_name = f"{result.get('run_id','sequence')}_message_sequence.csv"
+            st.download_button(
+                label="Download CSV",
+                data=csv_bytes,
+                file_name=suggested_name,
+                mime="text/csv",
+            )
+        else:
+            # Fallback: if a CSV file was produced on disk, offer it
+            seq_csv = str(result.get("sequence_csv_file", "")).strip()
+            if seq_csv and Path(seq_csv).exists():
+                with open(seq_csv, "rb") as f:
+                    csv_bytes = f.read()
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_bytes,
+                    file_name=Path(seq_csv).name,
+                    mime="text/csv",
+                )
         references = str(result.get("final_references_text", "")).strip()
         if references:
             st.markdown("### References")
