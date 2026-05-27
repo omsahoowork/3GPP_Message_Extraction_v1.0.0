@@ -1,0 +1,9 @@
+{
+  "test_description": "Validate successful intra-NR inter-frequency handover. Ensure the device transitions correctly between cells upon network instruction, handles configuration updates, and completes the process by confirming the handover and maintaining proper network connectivity.",
+  "RAT": "NR SA",
+  "Core": "5GC",
+  "Protocol Layers": "[RRC, NAS]",
+  "Expected Outcome": "SUCCESS",
+  "Cell Relation": "INTER CELL",
+  "Frequency Relation": "INTER FREQUENCY"
+}

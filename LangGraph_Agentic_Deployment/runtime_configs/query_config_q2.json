@@ -1,0 +1,9 @@
+{
+  "test_description": "Intra NR handover, success, inter-frequency handover scenario.",
+  "RAT": "NR SA",
+  "Core": "5GC",
+  "Protocol Layers": "[RRC, NAS]",
+  "Expected Outcome": "SUCCESS",
+  "Cell Relation": "INTER CELL",
+  "Frequency Relation": "INTER FREQUENCY"
+}
