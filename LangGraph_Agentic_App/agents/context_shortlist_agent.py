@@ -14,43 +14,6 @@ from core.prompts import CONTEXT_SHORTLIST_AGENT_SYSTEM_PROMPT
 from tools.extraction_tool import generate_context_fields_json
 
 
-@tool
-def rank_contexts(
-    query_config_json: str,
-    question: str,
-    contexts_json: str,
-    openai_api_key: str = "",
-) -> dict:
-    """Rank and select relevant contexts from a list of candidates.
-
-    Args:
-        query_config_json: JSON string of user config
-        question: Enhanced query question
-        contexts_json: JSON string of contexts with option_index
-
-    Returns:
-        Dict with selected_option_indices (list of ints)
-    """
-    from core.prompts import CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT
-    
-    # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=str(openai_api_key or "").strip())
-    
-    prompt = CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT.format(
-        query_config=query_config_json,
-        question=question,
-        raw_contexts_json=contexts_json,
-    )
-    
-    raw = llm.invoke(prompt).content
-    try:
-        parsed = json.loads(raw)
-        selected = parsed.get("selected_option_indices", [])
-        return {"selected_option_indices": selected if isinstance(selected, list) else []}
-    except (json.JSONDecodeError, ValueError):
-        return {"selected_option_indices": []}
-
-
 def create_shortlist_agent(openai_api_key: str):
     """Create a ReAct agent for context shortlisting."""
     # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
