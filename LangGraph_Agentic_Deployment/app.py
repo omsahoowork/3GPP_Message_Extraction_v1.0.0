@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from services.pipeline_service import (
     DEPLOYMENT_DIR,
     PipelineSnapshot,
     continue_pipeline,
+    has_required_openai_key,
     node_status_text,
     start_pipeline,
     write_runtime_query_config,
@@ -90,8 +92,6 @@ def _init_state() -> None:
         "query_counter": 0,
         "last_feedback_key": "",
         "decision_trail": [],
-        # Session-only key: do not prefill from process env for multi-user safety.
-        "OPENAI_API_KEY": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -103,21 +103,11 @@ _init_state()
 st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
 st.caption("Describe a test scenario and let the AI generate the expected message sequence along with a sequence diagram.")
 
-# Mandatory first step: provide OPENAI_API_KEY on the main screen.
-main_api_key = st.text_input(
-    "OpenAI API Key (Required)",
-    value=st.session_state.get("OPENAI_API_KEY", ""),
-    type="password",
-    help="Paste your OpenAI API key here. It's stored only in session state for this app run.",
-)
-if main_api_key != st.session_state.get("OPENAI_API_KEY", ""):
-    st.session_state["OPENAI_API_KEY"] = main_api_key
-
-if not str(st.session_state.get("OPENAI_API_KEY", "")).strip():
+if not has_required_openai_key():
     st.error(
-        "OPENAI_API_KEY is missing. Enter it above to continue."
+        "OPENAI_API_KEY is missing. Set it in KG_Generation_Pipeline/RAG_KG_Integration/.env "
+        "or Streamlit secrets, then restart the app."
     )
-    st.stop()
 
 with st.form("query_form", clear_on_submit=False):
     test_description = st.text_area(
@@ -132,7 +122,7 @@ with st.form("query_form", clear_on_submit=False):
 if submitted:
     if not str(test_description).strip():
         st.error("Test Description is required.")
-    elif not str(st.session_state.get("OPENAI_API_KEY", "")).strip():
+    elif not has_required_openai_key():
         st.error("Cannot start pipeline without OPENAI_API_KEY.")
     else:
         st.session_state.query_counter += 1
@@ -147,7 +137,6 @@ if submitted:
         with st.spinner("Running pipeline: retrieval and objective-based shortlisting..."):
             snapshot = start_pipeline(
                 config_path=config_path,
-                api_key=str(st.session_state.get("OPENAI_API_KEY", "")).strip(),
                 tags=["streamlit", "agentic-app", rat.lower()],
                 metadata={
                     "query_id": query_id,

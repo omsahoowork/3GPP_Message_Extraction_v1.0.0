@@ -497,23 +497,11 @@ Procedure:
    c. Track which states have been processed.
 3. If any state returns empty messages, retry that state once.
 4. Continue until all states in the loop path are processed (or marked as unavailable).
-5. Organize the results into a JSON response with the structure below.
-
-Response Format:
-ALWAYS respond with a valid JSON object matching this structure:
-{
-  "transition_message_sequence": [{"name": "message_name", "direction": "UE_TO_GNB|GNB_TO_UE", ...}, ...],
-  "state_messages": [{"state": "state_name", "messages": [...]}, ...],
-  "loop_path": ["state1", "state2", ...],
-  "table_contexts": ["context_snippet1", "context_snippet2", ...],
-  "is_complete": true|false,
-  "error": null|"error_description"
-}
+5. Return the concatenated messages grouped by state.
 
 Validation:
 - Before returning, check that you have covered all states in the loop path.
-- If some states are missing, note them in the error field but include all messages extracted.
-- CRITICAL: Always respond with the JSON structure above. Do not provide text explanations - only JSON.
+- If some states are missing, note them but return what you have.
 """
 
 PROCEDURE_AGENT_SYSTEM_PROMPT = """\
@@ -559,28 +547,12 @@ Procedure:
 1. For each raw context:
    a. Call generate_context_fields_json to extract schema fields.
    b. Build a display row with option_index, source_doc, and extracted fields.
-2. Return all processed contexts with their indices as a JSON response.
+2. Return all processed contexts with their indices.
 3. The returned data will be presented to the user for selection.
-
-Response Format:
-ALWAYS respond with a valid JSON object (wrapped in triple backticks if needed):
-{
-  "selected_option_indices": [0, 1, 2, ...],
-  "context_options": [
-    {
-      "option_index": 0,
-      "source_doc": "filename.txt",
-      "extracted_fields": {...}
-    },
-    ...
-  ],
-  "error": null|"error_description"
-}
 
 Guardrails:
 - Call generate_context_fields_json for every context (do not skip).
 - Preserve the original option_index mapping so indices match when the user selects.
 - Ensure no JSON parse failures stop the agent (implement retry).
 - Do not invent pass/fail criteria; only use evidence explicitly present in the context.
-- CRITICAL: Always respond with JSON. Do not provide text explanations - only JSON.
 """

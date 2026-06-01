@@ -13,6 +13,7 @@ if dotenv is not None:
 	dotenv.load_dotenv(dotenv_path=ENV_PATH)
 
 # ── OpenAI/Anthropic/Ollama ────────────────────────────────────────────────────────────────────
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
 os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY", "")
 os.environ["OLLAMA_API_KEY"]        = os.getenv("OLLAMA_API_KEY", "")  
 

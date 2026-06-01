@@ -77,12 +77,8 @@ from core.prompts import (
 )
 
 
-def _get_llm(openai_api_key: str) -> ChatOpenAI:
-    return ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=str(openai_api_key or "").strip())
-
-
-def _state_openai_api_key(state: PipelineState) -> str:
-    return str(state.get("openai_api_key", "")).strip()
+def _get_llm() -> ChatOpenAI:
+    return ChatOpenAI(model=LLM_MODEL, temperature=0.1)
 
 # def _get_llm() -> ChatOllama:
 #     """Return a shared LLM instance (lazy, not module-level)."""
@@ -724,7 +720,7 @@ def _extract_sib_messages_for_combination(
         if direct_match:
             return direct_match
         
-        llm = _get_llm(_state_openai_api_key(state))
+        llm = _get_llm()
         parser = _get_json_parser()
         chain = llm | parser
         
@@ -799,73 +795,16 @@ def _load_state_loop_map(rat: str) -> dict[str, str]:
     return loop_map
 
 
-def _load_state_alias_map(rat: str) -> dict[str, str]:
-    """Load alias-to-state-id mappings from data_states markdown tables.
-
-    Example mappings:
-    - "NR RRC_CONNECTED" -> "3N-A"
-    - "NR RRC_IDLE" -> "1N-A"
-    """
-    states_file = "nr_states.md" if rat == "nr" else "lte_states.md"
-    path = Path(__file__).parent.parent / "data_states" / states_file
-    if not path.exists():
-        return {}
-
-    alias_map: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line.startswith("|"):
-            continue
-
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if len(cells) < 3:
-            continue
-
-        state_cell = cells[0]
-        if not state_cell or state_cell.lower() in {"state", "state id"}:
-            continue
-        if state_cell.startswith("---"):
-            continue
-
-        state_id = _normalise_state_key(state_cell)
-        if not state_id:
-            continue
-
-        # Build aliases only from fields that are specific enough for lookup.
-        for alias_cell in cells[1:-1]:
-            alias = _normalise_state_key(alias_cell)
-            if not alias:
-                continue
-
-            # Keep explicit state-like aliases and RRC-labelled aliases only.
-            if "RRC" in alias or re.search(r"\b\d+[A-Z](?:-[A-Z0-9]+)?\b", alias):
-                alias_map.setdefault(alias, state_id)
-
-    return alias_map
-
-
 def _extract_state_key_from_ue_state(ue_state: str, rat: str) -> str:
     text = str(ue_state or "")
-    text_upper = text.upper()
     if rat == "nr":
-        # Match IDs like 3N-A, 2E-A, 10N-A and tolerate optional spaces around '-'.
-        match = re.search(r"\b\d+[A-Z](?:\s*-\s*[A-Z0-9]+)\b", text, flags=re.IGNORECASE)
+        match = re.search(r"\b\d[A-Z]-[A-Z]\b", text, flags=re.IGNORECASE)
         if match:
             return _normalise_state_key(match.group(0))
     else:
-        match = re.search(r"\bSTATE\s*([0-9]+[A-Z]?(?:-[A-Z0-9]+)?)\b", text, flags=re.IGNORECASE)
+        match = re.search(r"\bSTATE\s*([0-9][A-Z]?(?:-[A-Z0-9]+)?)\b", text, flags=re.IGNORECASE)
         if match:
             return _normalise_state_key(match.group(1))
-
-    # Alias-based fallback from lookup tables (e.g., "NR RRC_CONNECTED" -> "3N-A").
-    alias_map = _load_state_alias_map(rat)
-    normalised_text = _normalise_state_key(text_upper)
-    if normalised_text in alias_map:
-        return alias_map[normalised_text]
-
-    for alias in sorted(alias_map.keys(), key=len, reverse=True):
-        if alias and alias in normalised_text:
-            return alias_map[alias]
 
     return _normalise_state_key(text)
 
@@ -984,7 +923,7 @@ def _get_test_purpose_value(context_json: dict) -> object:
     return []
 
 
-def _extract_transition_messages_from_table_context(*, rat: str, lookup: str, context: str, openai_api_key: str) -> list[dict]:
+def _extract_transition_messages_from_table_context(*, rat: str, lookup: str, context: str) -> list[dict]:
     """Extract ordered transition messages from one LTE/NR table context."""
     lookup_text = str(lookup or "").strip()
     context_text = str(context or "").strip()
@@ -992,7 +931,7 @@ def _extract_transition_messages_from_table_context(*, rat: str, lookup: str, co
         return []
 
     try:
-        llm = _get_llm(openai_api_key)
+        llm = _get_llm()
         parser = _get_json_parser()
         chain = llm | parser
         if str(rat).strip().lower() == "nr":
@@ -1014,7 +953,7 @@ def _extract_transition_messages_from_table_context(*, rat: str, lookup: str, co
         return []
 
 
-def _build_state_grouped_transition_messages(*, rat: str, loop_path: list[str], openai_api_key: str) -> tuple[list[dict], list[str], bool, str]:
+def _build_state_grouped_transition_messages(*, rat: str, loop_path: list[str]) -> tuple[list[dict], list[str], bool, str]:
     """Build per-state message groups directly from 36.508/38.508 retrieval payload.
 
     LTE rule: transition messages are assigned to destination states only.
@@ -1067,7 +1006,6 @@ def _build_state_grouped_transition_messages(*, rat: str, loop_path: list[str], 
                 rat="lte",
                 lookup=lookup,
                 context=context_text,
-                openai_api_key=openai_api_key,
             )
             _append_group(destination_state, messages)
 
@@ -1090,7 +1028,6 @@ def _build_state_grouped_transition_messages(*, rat: str, loop_path: list[str], 
                 rat="nr",
                 lookup=lookup,
                 context=context_text,
-                openai_api_key=openai_api_key,
             )
             _append_group(state_id, messages)
 
@@ -1143,7 +1080,7 @@ def _extract_ue_transition_messages(
     if not transition_context:
         return [], loop_path, False, "retrieved 508 context is empty", [], []
 
-    llm = _get_llm(_state_openai_api_key(state))
+    llm = _get_llm()
     parser = _get_json_parser()
     chain = llm | parser
 
@@ -1410,8 +1347,7 @@ def enhance_query_node(state: PipelineState) -> dict:
         # Enhance the original question structure and format by appending the retrieved context
         enhanced_query: str = query_enhancement_rag.invoke({
             "query_config": str(state["query_config"]),
-            "context": contexts,
-            "openai_api_key": _state_openai_api_key(state),
+            "context": contexts
         })
 
         return {
@@ -1430,7 +1366,7 @@ def direct_llm_answer_node(state: PipelineState) -> dict:
         if not question:
             return {"error": "direct_llm_answer_node failed: question is empty"}
 
-        llm = _get_llm(_state_openai_api_key(state))
+        llm = _get_llm()
         prompt = LLM_ONLY_PROMPT.format(question=question)
         raw = llm.invoke(prompt).content
         parsed = _parse_llm_only_response(raw)
@@ -1513,7 +1449,6 @@ def shortlist_contexts_node(state: PipelineState) -> dict:
             raw_source_docs=raw_source_docs,
             query_config=query_config,
             question=question,
-            openai_api_key=_state_openai_api_key(state),
         )
 
         shortlisted_indices = result.get("shortlisted_raw_indices", [])
@@ -1529,7 +1464,6 @@ def shortlist_contexts_node(state: PipelineState) -> dict:
             shortlisted_enhanced_contexts=shortlisted_enhanced_contexts,
             raw_contexts=raw_contexts,
             shortlisted_indices=shortlisted_indices,
-            openai_api_key=_state_openai_api_key(state),
         )
 
         print("\n" + "=" * 80)
@@ -1579,7 +1513,6 @@ def select_context_node(state: PipelineState) -> dict:
             shortlisted_enhanced_contexts=shortlisted_enhanced_contexts,
             raw_contexts=contexts,
             shortlisted_indices=shortlisted_indices,
-            openai_api_key=_state_openai_api_key(state),
         )
 
     # Pause here — surfaces enhanced_contexts to the caller.
@@ -1658,7 +1591,6 @@ def _find_sibling_sections(
     source_docs: list[str],
     raw_contexts: list[str],
     spec_series_filter: str | None = None,
-    openai_api_key: str = "",
 ) -> list[dict]:
     """Find all sibling sections (including self) by scanning chunks.pkl directly.
 
@@ -1727,7 +1659,7 @@ def _find_sibling_sections(
                 seen_sections.add(doc_section)
                 siblings.append({
                     "section_id": doc_section,
-                    "summary": _generate_summary(raw_contexts[idx], openai_api_key=openai_api_key),
+                    "summary": _generate_summary(raw_contexts[idx]),
                     "raw_index": idx,
                     "corpus_context": raw_contexts[idx],
                 })
@@ -1739,7 +1671,7 @@ def _find_sibling_sections(
             ctx = raw_contexts[raw_index] if raw_index >= 0 else context_text
             siblings.append({
                 "section_id": bc,
-                "summary": _generate_summary(ctx, openai_api_key=openai_api_key),
+                "summary": _generate_summary(ctx),
                 "raw_index": raw_index,
                 "corpus_context": context_text,
             })
@@ -1752,7 +1684,6 @@ def _shortlist_sibling_indices(
     siblings: list[dict],
     query_config: dict,
     question: str,
-    openai_api_key: str,
 ) -> list[int]:
     """Use an LLM to keep only the most relevant sibling section indices.
 
@@ -1774,7 +1705,7 @@ def _shortlist_sibling_indices(
     )
 
     try:
-        llm = _get_llm(openai_api_key)
+        llm = _get_llm()
         parser = _get_json_parser()
         parsed = (llm | parser).invoke(prompt)
         selected = parsed.get("selected_option_indices", [])
@@ -1791,7 +1722,7 @@ def _shortlist_sibling_indices(
         return list(range(len(siblings)))
 
 
-def _generate_summary(context: str, openai_api_key: str, max_chars: int = 300) -> str:
+def _generate_summary(context: str, max_chars: int = 300) -> str:
     """Extract a concise test objective from context using the LLM.
 
     Only the first 2000 chars are used to keep latency/cost bounded.
@@ -1810,7 +1741,7 @@ def _generate_summary(context: str, openai_api_key: str, max_chars: int = 300) -
     )
 
     try:
-        llm = _get_llm(openai_api_key)
+        llm = _get_llm()
         raw = llm.invoke(prompt).content
         objective = " ".join(str(raw or "").strip().split())
         if not objective:
@@ -1844,7 +1775,6 @@ def _build_shortlist_display_options(
     shortlisted_enhanced_contexts: list[dict],
     raw_contexts: list[str],
     shortlisted_indices: list[int],
-    openai_api_key: str,
 ) -> list[dict]:
     """Return lightweight first-selection payloads with heading+objective only."""
     options: list[dict] = []
@@ -1870,7 +1800,7 @@ def _build_shortlist_display_options(
                 or str(context_json.get("summary", "")).strip()
             )
         if not objective:
-            objective = _generate_summary(raw_context, openai_api_key=openai_api_key)
+            objective = _generate_summary(raw_context)
 
         options.append(
             {
@@ -1884,7 +1814,7 @@ def _build_shortlist_display_options(
 
 
 @lru_cache(maxsize=512)
-def _extract_spec_reference_with_llm(text: str, purpose: str, openai_api_key: str) -> tuple[str, str]:
+def _extract_spec_reference_with_llm(text: str, purpose: str) -> tuple[str, str]:
     """Extract (spec_id, section_id) using LLM from reference context text."""
     payload = str(text or "").strip()
     if not payload:
@@ -1910,7 +1840,7 @@ def _extract_spec_reference_with_llm(text: str, purpose: str, openai_api_key: st
     prompt += f"\nContext:\n{snippet}"
 
     try:
-        llm = _get_llm(openai_api_key)
+        llm = _get_llm()
         parser = _get_json_parser()
         parsed = (llm | parser).invoke(prompt)
         spec_id = str(parsed.get("spec_id", "")).strip() or "-"
@@ -1924,7 +1854,6 @@ def _build_reference_lines(state: PipelineState) -> tuple[list[str], list[str], 
     """Create final UE transition and procedure references for result display."""
     ue_refs: list[str] = []
     procedure_refs: list[str] = []
-    openai_api_key = _state_openai_api_key(state)
 
     loop_path = state.get("ue_state_loop_path") or []
     if not isinstance(loop_path, list):
@@ -1967,15 +1896,10 @@ def _build_reference_lines(state: PipelineState) -> tuple[list[str], list[str], 
         _spec_id, section_id = _extract_spec_reference_with_llm(
             matched_context or fallback_doc,
             "ue_transition",
-            openai_api_key,
         )
         ue_refs.append(f"{state_label} - {ue_transition_spec} $ {section_id}")
 
-    proc_spec, proc_section = _extract_spec_reference_with_llm(
-        fallback_doc,
-        "procedure",
-        openai_api_key,
-    )
+    proc_spec, proc_section = _extract_spec_reference_with_llm(fallback_doc, "procedure")
     # Keep procedure spec normalized to 3GPP dotted style without suffix noise.
     proc_match = re.search(r"\b(3[68](?:\.|)523)\b", str(proc_spec))
     if proc_match:
@@ -2064,7 +1988,6 @@ def select_final_sibling_section_node(state: PipelineState) -> dict:
             source_docs=raw_source_docs,
             raw_contexts=raw_contexts,
             spec_series_filter=spec_series_filter,
-            openai_api_key=_state_openai_api_key(state),
         )
         
         if len(siblings) <= 1:
@@ -2079,7 +2002,6 @@ def select_final_sibling_section_node(state: PipelineState) -> dict:
             siblings=siblings,
             query_config=state.get("query_config") or {},
             question=str(state.get("question") or ""),
-            openai_api_key=_state_openai_api_key(state),
         )
         # Format shortlisted sibling options for display
         display_options = []
@@ -2164,12 +2086,7 @@ def finalize_section_selection_node(state: PipelineState) -> dict:
             final_source_doc = final_sibling.get("section_id", "")
         
         # Generate full context_enhancement_json for the final selection
-        context_json = generate_context_fields_json.invoke(
-            {
-                "context": final_context,
-                "openai_api_key": _state_openai_api_key(state),
-            }
-        )
+        context_json = generate_context_fields_json.invoke({"context": final_context})
         
         # Prepare final context
         final_context_user_choice = combine_context.invoke({"context": [final_context]})
@@ -2264,7 +2181,6 @@ def extract_sib_messages_node(state: PipelineState) -> dict:
                 rat=rat,
                 combination=system_info_combination,
                 cell_id=cell_id,
-                openai_api_key=_state_openai_api_key(state),
             )
             cell_sib_messages = _coerce_messages_payload(cell_sib_messages)
             if not cell_sib_messages:
@@ -2331,66 +2247,30 @@ def extract_ue_transition_messages_node(state: PipelineState) -> dict:
                 return rows
             return []
 
-        # Build UE-state candidates from most reliable to least reliable fields.
-        # Some contexts include preamble text like "5GS state 3N-A" while others
-        # expose explicit UE state labels such as "NR RRC_CONNECTED".
-        state_candidates: list[str] = []
+        # Primary source requested by user: selected shortlist comparison JSON field.
+        ue_state = _get_selected_preamble_pre_test_condition(state)
 
-        def _append_state_candidate(value: object) -> None:
-            text = str(value or "").strip()
-            if text and text not in state_candidates:
-                state_candidates.append(text)
+        # Fallbacks to keep compatibility if shortlist row is unavailable.
+        if not ue_state.strip():
+            ue_state = str(context_json.get("preamble_pre_test_condition", ""))
+        if not ue_state.strip():
+            ue_state = str(context_json.get("ue_state", ""))
 
-        _append_state_candidate(context_json.get("ue_state", ""))
-        _append_state_candidate(_get_selected_preamble_pre_test_condition(state))
-        _append_state_candidate(context_json.get("preamble_pre_test_condition", ""))
-
-        # For NR 38-series, include normalized state-key forms as additional candidates.
+        # For NR 38-series, extract state key from preamble.
         spec_series = str(state.get("spec_series_filter") or "").strip()
         if spec_series == "38":
-            for candidate in list(state_candidates):
-                _append_state_candidate(_extract_state_key_from_ue_state(candidate, "nr"))
-
-        ue_state = state_candidates[0] if state_candidates else ""
+            ue_state = _extract_state_key_from_ue_state(ue_state, "nr")
 
         # Determine RAT
         rat_label = infer_rat_label(context_json.get("rat", ""), spec_series)
         rat = "lte" if rat_label == "LTE" else "nr"
 
-        # Call agentic UE transition agent using candidate fallback strategy.
-        # Stop early once a candidate yields concrete loop-path/messages/state-groups.
-        result: dict = {}
-        for candidate in state_candidates or [""]:
-            ue_state = str(candidate).strip()
-            if not ue_state:
-                continue
-            result = run_ue_transition_agent(
-                ue_state=ue_state,
-                rat=rat,
-                openai_api_key=_state_openai_api_key(state),
-                max_iterations=20,
-            )
-            if not isinstance(result, dict):
-                result = {}
-
-            candidate_loop_path = result.get("loop_path") or result.get("loop_states") or []
-            candidate_messages = _coerce_messages_payload(
-                result.get("transition_message_sequence")
-                or result.get("message_sequence")
-                or result.get("ue_transition_message_sequence")
-                or []
-            )
-            candidate_state_rows = _coerce_state_rows(
-                result.get("state_messages")
-                or result.get("state_message_map")
-                or result.get("ue_transition_state_messages")
-                or []
-            )
-
-            has_loop = bool(candidate_loop_path)
-            has_content = bool(candidate_messages or candidate_state_rows)
-            if has_loop or has_content:
-                break
+        # Call agentic UE transition agent
+        result = run_ue_transition_agent(
+            ue_state=ue_state,
+            rat=rat,
+            max_iterations=20,
+        )
 
         if not isinstance(result, dict):
             result = {}
@@ -2431,7 +2311,6 @@ def extract_ue_transition_messages_node(state: PipelineState) -> dict:
             fallback_rows, fallback_contexts, fallback_complete, fallback_error = _build_state_grouped_transition_messages(
                 rat=rat,
                 loop_path=loop_path,
-                openai_api_key=_state_openai_api_key(state),
             )
             if fallback_rows:
                 ue_transition_state_messages = fallback_rows
@@ -2454,13 +2333,9 @@ def extract_ue_transition_messages_node(state: PipelineState) -> dict:
 
         if not is_complete:
             # Valid empty case: start-state or no transition rows are expected.
-            if (
-                not transition_messages
-                and not ue_transition_state_messages
-                and (
-                    _is_benign_empty_extraction(incomplete_reason)
-                    or (len(loop_path) <= 1 and not incomplete_reason)
-                )
+            if not transition_messages and not ue_transition_state_messages and (
+                _is_benign_empty_extraction(incomplete_reason)
+                or len(loop_path) <= 1
             ):
                 return {
                     "ue_state_loop_path": loop_path,
@@ -2537,7 +2412,6 @@ def extract_procedure_messages_node(state: PipelineState) -> dict:
             question=str(state.get("question", "")),
             context=str(state.get("rag_context", "")),
             serving_cell_id=serving_cell_id,
-            openai_api_key=_state_openai_api_key(state),
             other_cells=other_cells,
             test_purpose_index=int(test_purpose_index) if isinstance(test_purpose_index, int) else 0,
         )

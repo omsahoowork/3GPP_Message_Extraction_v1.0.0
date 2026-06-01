@@ -68,6 +68,7 @@ def _load_environment_like_agentic_app() -> None:
         return default
 
     # API keys used by Agentic_App/config.py
+    os.environ["OPENAI_API_KEY"] = _pick("OPENAI_API_KEY", "")
     os.environ["ANTHROPIC_API_KEY"] = _pick("ANTHROPIC_API_KEY", "")
     os.environ["OLLAMA_API_KEY"] = _pick("OLLAMA_API_KEY", "")
 
@@ -97,25 +98,19 @@ def _load_environment_like_agentic_app() -> None:
 
 _load_environment_like_agentic_app()
 
+
+def has_required_openai_key() -> bool:
+    return bool(str(os.getenv("OPENAI_API_KEY", "")).strip())
+
 if str(AGENTIC_APP_DIR) not in sys.path:
     sys.path.insert(0, str(AGENTIC_APP_DIR))
 
-def _get_langgraph_api() -> dict[str, Any]:
-    """Import LangGraph modules lazily so app UI can render before API key entry."""
-    from langgraph_pipeline import run_pipeline, resume_pipeline  # noqa: E402
-    from langgraph_pipeline.graph import (  # noqa: E402
-        get_pending_interrupt_node,
-        get_pending_interrupt_payload,
-        is_awaiting_selection,
-    )
-
-    return {
-        "run_pipeline": run_pipeline,
-        "resume_pipeline": resume_pipeline,
-        "get_pending_interrupt_node": get_pending_interrupt_node,
-        "get_pending_interrupt_payload": get_pending_interrupt_payload,
-        "is_awaiting_selection": is_awaiting_selection,
-    }
+from langgraph_pipeline import run_pipeline, resume_pipeline  # noqa: E402
+from langgraph_pipeline.graph import (  # noqa: E402
+    get_pending_interrupt_node,
+    get_pending_interrupt_payload,
+    is_awaiting_selection,
+)
 
 
 @dataclass
@@ -151,17 +146,9 @@ def write_runtime_query_config(query_config: dict[str, Any], *, run_id: str | No
     return target
 
 
-def start_pipeline(
-    config_path: Path,
-    *,
-    api_key: str,
-    tags: list[str] | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> PipelineSnapshot:
-    api = _get_langgraph_api()
-    result = api["run_pipeline"](
+def start_pipeline(config_path: Path, *, tags: list[str] | None = None, metadata: dict[str, Any] | None = None) -> PipelineSnapshot:
+    result = run_pipeline(
         query_config_path=str(config_path),
-        initial_state={"openai_api_key": str(api_key or "").strip()},
         tags=tags or ["streamlit", "agentic-app"],
         metadata=metadata or {},
     )
@@ -169,17 +156,15 @@ def start_pipeline(
 
 
 def continue_pipeline(thread_id: str, selected_index: int) -> PipelineSnapshot:
-    api = _get_langgraph_api()
-    result = api["resume_pipeline"](thread_id, int(selected_index))
+    result = resume_pipeline(thread_id, int(selected_index))
     return capture_snapshot(result)
 
 
 def capture_snapshot(result: dict[str, Any]) -> PipelineSnapshot:
-    api = _get_langgraph_api()
     thread_id = str(result.get("thread_id", "")).strip() or None
-    awaiting = bool(thread_id and api["is_awaiting_selection"](thread_id))
-    pending_node = api["get_pending_interrupt_node"](thread_id) if awaiting and thread_id else None
-    pending_payload = api["get_pending_interrupt_payload"](thread_id) if awaiting and thread_id else []
+    awaiting = bool(thread_id and is_awaiting_selection(thread_id))
+    pending_node = get_pending_interrupt_node(thread_id) if awaiting and thread_id else None
+    pending_payload = get_pending_interrupt_payload(thread_id) if awaiting and thread_id else []
     pending_options = _normalize_options(pending_payload)
 
     return PipelineSnapshot(

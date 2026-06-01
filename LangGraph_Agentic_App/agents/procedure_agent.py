@@ -11,7 +11,6 @@ def run_procedure_agent(
     question: str,
     context: str,
     serving_cell_id: str,
-    openai_api_key: str,
     other_cells: list[str] | None = None,
     other_participating_cell_ids: list[str] | None = None,
     test_purpose_index: int | None = None,
@@ -43,7 +42,6 @@ def run_procedure_agent(
             "question": question,
             "context": context,
             "serving_cell_id": serving_cell_id,
-            "openai_api_key": str(openai_api_key or "").strip(),
             "other_participating_cell_ids": json.dumps(participant_cells, ensure_ascii=False),
             "test_purpose_index": int(test_purpose_index) if isinstance(test_purpose_index, int) else 0,
         })

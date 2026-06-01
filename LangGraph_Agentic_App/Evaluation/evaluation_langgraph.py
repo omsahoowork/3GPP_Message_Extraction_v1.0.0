@@ -83,11 +83,7 @@ LANGSMITH_TRACING_ENABLED = _prepare_langsmith_tracing()
 def _initialize_ragas_evaluator():
 	"""Initialize RAGAS LLM and embeddings for answer evaluation."""
 	try:
-		llm = ChatOpenAI(
-			model=LLM_MODEL,
-			temperature=0.1,
-			api_key=str(os.getenv("OPENAI_API_KEY", "")).strip(),
-		)
+		llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1)
 		# llm = ChatAnthropic(model=LLM_MODEL, temperature=0.1)
 		model_cache_dir = str(LANGGRAPH_ROOT.parent.parent / "models")
 		embeddings = HuggingFaceEmbeddings(

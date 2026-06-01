@@ -13,10 +13,10 @@ from core.prompts import SIB_AGENT_SYSTEM_PROMPT
 from tools.sib_tools import lookup_sib_combination, sib_lookup_table_text
 
 
-def create_sib_agent(openai_api_key: str):
+def create_sib_agent():
     """Create a ReAct agent for SIB message extraction."""
     # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=str(openai_api_key or "").strip())
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1)
     
     tools = [lookup_sib_combination, sib_lookup_table_text]
     
@@ -26,6 +26,9 @@ def create_sib_agent(openai_api_key: str):
         prompt=SIB_AGENT_SYSTEM_PROMPT,
     )
     return agent
+
+
+_sib_agent = create_sib_agent()
 
 
 def _coerce_agent_output_to_messages(raw_content: object, default_cell_id: str) -> list[dict]:
@@ -75,7 +78,6 @@ def run_sib_agent(
     rat: str,
     combination: str,
     cell_id: str,
-    openai_api_key: str,
     max_iterations: int = 10,
 ) -> list[dict]:
     """Run the SIB agent to extract SIB messages for a given combination.
@@ -102,7 +104,7 @@ Return ONLY the list of message dicts, no explanation.
 
     try:
         # Invoke agent (returns {'output': <result>})
-        result = create_sib_agent(openai_api_key).invoke(
+        result = _sib_agent.invoke(
             {"messages": [{"role": "user", "content": prompt}]},
             config={"recursion_limit": max_iterations},
         )
