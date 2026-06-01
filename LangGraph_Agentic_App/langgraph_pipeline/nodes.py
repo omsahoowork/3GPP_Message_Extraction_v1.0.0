@@ -2274,31 +2274,66 @@ def extract_ue_transition_messages_node(state: PipelineState) -> dict:
                 return rows
             return []
 
-        # Primary source requested by user: selected shortlist comparison JSON field.
-        ue_state = _get_selected_preamble_pre_test_condition(state)
+        # Build UE-state candidates from most reliable to least reliable fields.
+        # Some contexts include preamble text like "5GS state 3N-A" while others
+        # expose explicit UE state labels such as "NR RRC_CONNECTED".
+        state_candidates: list[str] = []
 
-        # Fallbacks to keep compatibility if shortlist row is unavailable.
-        if not ue_state.strip():
-            ue_state = str(context_json.get("preamble_pre_test_condition", ""))
-        if not ue_state.strip():
-            ue_state = str(context_json.get("ue_state", ""))
+        def _append_state_candidate(value: object) -> None:
+            text = str(value or "").strip()
+            if text and text not in state_candidates:
+                state_candidates.append(text)
 
-        # For NR 38-series, extract state key from preamble.
+        _append_state_candidate(context_json.get("ue_state", ""))
+        _append_state_candidate(_get_selected_preamble_pre_test_condition(state))
+        _append_state_candidate(context_json.get("preamble_pre_test_condition", ""))
+
+        # For NR 38-series, include normalized state-key forms as additional candidates.
         spec_series = str(state.get("spec_series_filter") or "").strip()
         if spec_series == "38":
-            ue_state = _extract_state_key_from_ue_state(ue_state, "nr")
+            for candidate in list(state_candidates):
+                _append_state_candidate(_extract_state_key_from_ue_state(candidate, "nr"))
+
+        ue_state = state_candidates[0] if state_candidates else ""
 
         # Determine RAT
         rat_label = infer_rat_label(context_json.get("rat", ""), spec_series)
         rat = "lte" if rat_label == "LTE" else "nr"
 
-        # Call agentic UE transition agent
-        result = run_ue_transition_agent(
-            ue_state=ue_state,
-            rat=rat,
-            openai_api_key=_state_openai_api_key(state),
-            max_iterations=20,
-        )
+        # Call agentic UE transition agent using candidate fallback strategy.
+        # Stop early once a candidate yields concrete loop-path/messages/state-groups.
+        result: dict = {}
+        for candidate in state_candidates or [""]:
+            ue_state = str(candidate).strip()
+            if not ue_state:
+                continue
+            result = run_ue_transition_agent(
+                ue_state=ue_state,
+                rat=rat,
+                openai_api_key=_state_openai_api_key(state),
+                max_iterations=20,
+            )
+            if not isinstance(result, dict):
+                result = {}
+
+            candidate_loop_path = result.get("loop_path") or result.get("loop_states") or []
+            candidate_messages = _coerce_messages_payload(
+                result.get("transition_message_sequence")
+                or result.get("message_sequence")
+                or result.get("ue_transition_message_sequence")
+                or []
+            )
+            candidate_state_rows = _coerce_state_rows(
+                result.get("state_messages")
+                or result.get("state_message_map")
+                or result.get("ue_transition_state_messages")
+                or []
+            )
+
+            has_loop = bool(candidate_loop_path)
+            has_content = bool(candidate_messages or candidate_state_rows)
+            if has_loop or has_content:
+                break
 
         if not isinstance(result, dict):
             result = {}
@@ -2362,9 +2397,13 @@ def extract_ue_transition_messages_node(state: PipelineState) -> dict:
 
         if not is_complete:
             # Valid empty case: start-state or no transition rows are expected.
-            if not transition_messages and not ue_transition_state_messages and (
-                _is_benign_empty_extraction(incomplete_reason)
-                or len(loop_path) <= 1
+            if (
+                not transition_messages
+                and not ue_transition_state_messages
+                and (
+                    _is_benign_empty_extraction(incomplete_reason)
+                    or (len(loop_path) <= 1 and not incomplete_reason)
+                )
             ):
                 return {
                     "ue_state_loop_path": loop_path,
