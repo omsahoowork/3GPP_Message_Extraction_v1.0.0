@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-from contextlib import contextmanager
-from threading import Lock
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +12,6 @@ from typing import Any
 DEPLOYMENT_DIR = Path(__file__).resolve().parents[1]
 RAG_ROOT_DIR = DEPLOYMENT_DIR.parent
 AGENTIC_APP_DIR = RAG_ROOT_DIR / "LangGraph_Agentic_App"
-_OPENAI_ENV_LOCK = Lock()
 
 
 def _load_environment_like_agentic_app() -> None:
@@ -71,7 +68,6 @@ def _load_environment_like_agentic_app() -> None:
         return default
 
     # API keys used by Agentic_App/config.py
-    os.environ["OPENAI_API_KEY"] = _pick("OPENAI_API_KEY", "")
     os.environ["ANTHROPIC_API_KEY"] = _pick("ANTHROPIC_API_KEY", "")
     os.environ["OLLAMA_API_KEY"] = _pick("OLLAMA_API_KEY", "")
 
@@ -100,26 +96,6 @@ def _load_environment_like_agentic_app() -> None:
 
 
 _load_environment_like_agentic_app()
-
-
-def has_required_openai_key() -> bool:
-    return bool(str(os.getenv("OPENAI_API_KEY", "")).strip())
-
-
-@contextmanager
-def _temporary_openai_api_key(api_key: str):
-    """Temporarily bind OPENAI_API_KEY for a single pipeline execution scope."""
-    previous_value = os.environ.get("OPENAI_API_KEY")
-    key_value = str(api_key or "").strip()
-    if key_value:
-        os.environ["OPENAI_API_KEY"] = key_value
-    try:
-        yield
-    finally:
-        if previous_value is None:
-            os.environ.pop("OPENAI_API_KEY", None)
-        else:
-            os.environ["OPENAI_API_KEY"] = previous_value
 
 if str(AGENTIC_APP_DIR) not in sys.path:
     sys.path.insert(0, str(AGENTIC_APP_DIR))
@@ -183,21 +159,18 @@ def start_pipeline(
     metadata: dict[str, Any] | None = None,
 ) -> PipelineSnapshot:
     api = _get_langgraph_api()
-    with _OPENAI_ENV_LOCK:
-        with _temporary_openai_api_key(api_key):
-            result = api["run_pipeline"](
-                query_config_path=str(config_path),
-                tags=tags or ["streamlit", "agentic-app"],
-                metadata=metadata or {},
-            )
+    result = api["run_pipeline"](
+        query_config_path=str(config_path),
+        initial_state={"openai_api_key": str(api_key or "").strip()},
+        tags=tags or ["streamlit", "agentic-app"],
+        metadata=metadata or {},
+    )
     return capture_snapshot(result)
 
 
-def continue_pipeline(thread_id: str, selected_index: int, *, api_key: str) -> PipelineSnapshot:
+def continue_pipeline(thread_id: str, selected_index: int) -> PipelineSnapshot:
     api = _get_langgraph_api()
-    with _OPENAI_ENV_LOCK:
-        with _temporary_openai_api_key(api_key):
-            result = api["resume_pipeline"](thread_id, int(selected_index))
+    result = api["resume_pipeline"](thread_id, int(selected_index))
     return capture_snapshot(result)
 
 

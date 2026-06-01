@@ -67,6 +67,9 @@ class PipelineState(TypedDict, total=False):
     question: str
     """The 3GPP procedure question supplied by the caller.""" 
 
+    openai_api_key: Optional[str]
+    """Session-provided OpenAI API key used for explicit ChatOpenAI(api_key=...) calls."""
+
     ground_truth_messages: Optional[list[dict]]
     """Ground-truth signaling sequence as a list of {name, direction} dicts."""
 

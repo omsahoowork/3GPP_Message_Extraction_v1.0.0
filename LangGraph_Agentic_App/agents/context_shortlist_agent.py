@@ -19,6 +19,7 @@ def rank_contexts(
     query_config_json: str,
     question: str,
     contexts_json: str,
+    openai_api_key: str = "",
 ) -> dict:
     """Rank and select relevant contexts from a list of candidates.
 
@@ -33,7 +34,7 @@ def rank_contexts(
     from core.prompts import CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT
     
     # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1)
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=str(openai_api_key or "").strip())
     
     prompt = CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT.format(
         query_config=query_config_json,
@@ -50,13 +51,39 @@ def rank_contexts(
         return {"selected_option_indices": []}
 
 
-def create_shortlist_agent():
+def create_shortlist_agent(openai_api_key: str):
     """Create a ReAct agent for context shortlisting."""
     # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1)
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=str(openai_api_key or "").strip())
     # llm = ChatAnthropic(model=LLM_MODEL, temperature=0.1)
+
+    @tool
+    def rank_contexts_with_key(
+        query_config_json: str,
+        question: str,
+        contexts_json: str,
+    ) -> dict:
+        from core.prompts import CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT
+
+        rank_llm = ChatOpenAI(
+            model=LLM_MODEL,
+            temperature=0.1,
+            api_key=str(openai_api_key or "").strip(),
+        )
+        prompt = CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT.format(
+            query_config=query_config_json,
+            question=question,
+            raw_contexts_json=contexts_json,
+        )
+        raw = rank_llm.invoke(prompt).content
+        try:
+            parsed = json.loads(raw)
+            selected = parsed.get("selected_option_indices", [])
+            return {"selected_option_indices": selected if isinstance(selected, list) else []}
+        except (json.JSONDecodeError, ValueError):
+            return {"selected_option_indices": []}
     
-    tools = [rank_contexts]
+    tools = [rank_contexts_with_key]
     
     agent = create_react_agent(
         llm,
@@ -66,14 +93,12 @@ def create_shortlist_agent():
     return agent
 
 
-_shortlist_agent = create_shortlist_agent()
-
-
 def run_shortlist_agent(
     raw_contexts: list[str],
     raw_source_docs: list[str],
     query_config: dict,
     question: str,
+    openai_api_key: str,
     max_iterations: int = 10,
 ) -> dict:
     """Run the shortlist agent to filter and extract context fields.
@@ -120,7 +145,7 @@ Use the rank_contexts tool to select the relevant ones.
 """
     
     try:
-        ranking_result = _shortlist_agent.invoke(
+        ranking_result = create_shortlist_agent(openai_api_key).invoke(
             {"messages": [{"role": "user", "content": prompt}]},
             config={"recursion_limit": max_iterations},
         )
@@ -159,7 +184,11 @@ Use the rank_contexts tool to select the relevant ones.
         source_doc = raw_source_docs[raw_idx] if raw_idx < len(raw_source_docs) else ""
 
         # Extract context JSON with retry
-        context_json = _extract_context_with_retry(ctx, max_retries=AGENT_MAX_RETRIES)
+        context_json = _extract_context_with_retry(
+            ctx,
+            openai_api_key=openai_api_key,
+            max_retries=AGENT_MAX_RETRIES,
+        )
 
         enhanced = {
             "option_index": display_idx,
@@ -186,11 +215,16 @@ Use the rank_contexts tool to select the relevant ones.
     }
 
 
-def _extract_context_with_retry(context: str, max_retries: int = 3) -> dict:
+def _extract_context_with_retry(context: str, *, openai_api_key: str, max_retries: int = 3) -> dict:
     """Extract context fields with JSON parse retry."""
     for attempt in range(max_retries):
         try:
-            context_json = generate_context_fields_json.invoke({"context": context})
+            context_json = generate_context_fields_json.invoke(
+                {
+                    "context": context,
+                    "openai_api_key": str(openai_api_key or "").strip(),
+                }
+            )
             if isinstance(context_json, dict):
                 return context_json
         except Exception as e:

@@ -98,12 +98,6 @@ def _init_state() -> None:
             st.session_state[key] = value
 
 
-def _sync_openai_key() -> None:
-    # Intentionally no-op. OPENAI_API_KEY is handled per-session and passed to
-    # pipeline execution paths without persisting globally in process env.
-    return
-
-
 _init_state()
 
 st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
@@ -228,11 +222,7 @@ if snapshot is not None and snapshot.awaiting_selection:
                         spinner_text = "Applying test purpose and running extraction plus sequence generation..."
 
                     with st.spinner(spinner_text):
-                        next_snapshot = continue_pipeline(
-                            snapshot.thread_id or "",
-                            option_index,
-                            api_key=str(st.session_state.get("OPENAI_API_KEY", "")).strip(),
-                        )
+                        next_snapshot = continue_pipeline(snapshot.thread_id or "", option_index)
                     st.session_state.snapshot = next_snapshot
                     st.rerun()
 
