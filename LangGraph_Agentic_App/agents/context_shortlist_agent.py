@@ -58,7 +58,7 @@ def create_shortlist_agent(openai_api_key: str):
     # llm = ChatAnthropic(model=LLM_MODEL, temperature=0.1)
 
     @tool
-    def rank_contexts_with_key(
+    def rank_contexts(
         query_config_json: str,
         question: str,
         contexts_json: str,
@@ -83,7 +83,7 @@ def create_shortlist_agent(openai_api_key: str):
         except (json.JSONDecodeError, ValueError):
             return {"selected_option_indices": []}
     
-    tools = [rank_contexts_with_key]
+    tools = [rank_contexts]
     
     agent = create_react_agent(
         llm,

@@ -61,7 +61,7 @@ def create_ue_transition_agent(openai_api_key: str):
     llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=str(openai_api_key or "").strip())
 
     @tool
-    def extract_messages_from_context_with_key(
+    def extract_messages_from_context(
         rat: Annotated[str, "RAT type: 'nr' or 'lte'"],
         state_or_transition: Annotated[str, "State ID (NR) or transition string (LTE)"],
         context: Annotated[str, "Table context to extract messages from"],
@@ -90,7 +90,7 @@ def create_ue_transition_agent(openai_api_key: str):
         except (json.JSONDecodeError, ValueError):
             return {"message_sequence": []}
 
-    tools = [get_ue_state_loop_path, retrieve_state_transition_context, extract_messages_from_context_with_key]
+    tools = [get_ue_state_loop_path, retrieve_state_transition_context, extract_messages_from_context]
     
     agent = create_react_agent(
         llm,
