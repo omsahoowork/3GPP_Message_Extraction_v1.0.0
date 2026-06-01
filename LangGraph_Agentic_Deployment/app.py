@@ -103,10 +103,32 @@ _init_state()
 st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
 st.caption("Describe a test scenario and let the AI generate the expected message sequence along with a sequence diagram.")
 
+# Allow user to provide OPENAI_API_KEY via the UI (overrides env/secrets for this session)
+with st.sidebar.form("api_key_form", clear_on_submit=False):
+    sidebar_api_key = st.text_input(
+        "OpenAI API Key",
+        value=st.session_state.get("OPENAI_API_KEY", ""),
+        type="password",
+        help="Paste your OpenAI API key here. It's stored only in session state for this app run.",
+    )
+    save_key = st.form_submit_button("Set API Key")
+
+    if save_key and sidebar_api_key:
+        st.session_state["OPENAI_API_KEY"] = sidebar_api_key
+        os.environ["OPENAI_API_KEY"] = sidebar_api_key
+        try:
+            import services.pipeline_service as _ps
+
+            if hasattr(_ps, "_load_environment_like_agentic_app"):
+                # Re-run the internal loader so downstream checks pick up the new key.
+                _ps._load_environment_like_agentic_app()
+        except Exception:
+            # Being robust: failure to reload is non-fatal; key is still in os.environ
+            pass
+
 if not has_required_openai_key():
     st.error(
-        "OPENAI_API_KEY is missing. Set it in KG_Generation_Pipeline/RAG_KG_Integration/.env "
-        "or Streamlit secrets, then restart the app."
+        "OPENAI_API_KEY is missing. Set it."
     )
 
 with st.form("query_form", clear_on_submit=False):
