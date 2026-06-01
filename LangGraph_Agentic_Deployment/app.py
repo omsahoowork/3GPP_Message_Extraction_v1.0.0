@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +12,6 @@ from services.pipeline_service import (
     DEPLOYMENT_DIR,
     PipelineSnapshot,
     continue_pipeline,
-    has_required_openai_key,
     node_status_text,
     start_pipeline,
     write_runtime_query_config,
@@ -92,7 +90,8 @@ def _init_state() -> None:
         "query_counter": 0,
         "last_feedback_key": "",
         "decision_trail": [],
-        "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
+        # Session-only key: do not prefill from process env for multi-user safety.
+        "OPENAI_API_KEY": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -100,23 +99,12 @@ def _init_state() -> None:
 
 
 def _sync_openai_key() -> None:
-    api_key = str(st.session_state.get("OPENAI_API_KEY", "")).strip()
-    if not api_key:
-        return
-
-    os.environ["OPENAI_API_KEY"] = api_key
-    try:
-        import services.pipeline_service as _ps
-
-        if hasattr(_ps, "_load_environment_like_agentic_app"):
-            _ps._load_environment_like_agentic_app()
-    except Exception:
-        # Keep the API key in os.environ even if reloading the helper fails.
-        pass
+    # Intentionally no-op. OPENAI_API_KEY is handled per-session and passed to
+    # pipeline execution paths without persisting globally in process env.
+    return
 
 
 _init_state()
-_sync_openai_key()
 
 st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
 st.caption("Describe a test scenario and let the AI generate the expected message sequence along with a sequence diagram.")
@@ -130,9 +118,8 @@ main_api_key = st.text_input(
 )
 if main_api_key != st.session_state.get("OPENAI_API_KEY", ""):
     st.session_state["OPENAI_API_KEY"] = main_api_key
-    _sync_openai_key()
 
-if not has_required_openai_key():
+if not str(st.session_state.get("OPENAI_API_KEY", "")).strip():
     st.error(
         "OPENAI_API_KEY is missing. Enter it above to continue."
     )
@@ -151,7 +138,7 @@ with st.form("query_form", clear_on_submit=False):
 if submitted:
     if not str(test_description).strip():
         st.error("Test Description is required.")
-    elif not has_required_openai_key():
+    elif not str(st.session_state.get("OPENAI_API_KEY", "")).strip():
         st.error("Cannot start pipeline without OPENAI_API_KEY.")
     else:
         st.session_state.query_counter += 1
@@ -166,6 +153,7 @@ if submitted:
         with st.spinner("Running pipeline: retrieval and objective-based shortlisting..."):
             snapshot = start_pipeline(
                 config_path=config_path,
+                api_key=str(st.session_state.get("OPENAI_API_KEY", "")).strip(),
                 tags=["streamlit", "agentic-app", rat.lower()],
                 metadata={
                     "query_id": query_id,
@@ -240,7 +228,11 @@ if snapshot is not None and snapshot.awaiting_selection:
                         spinner_text = "Applying test purpose and running extraction plus sequence generation..."
 
                     with st.spinner(spinner_text):
-                        next_snapshot = continue_pipeline(snapshot.thread_id or "", option_index)
+                        next_snapshot = continue_pipeline(
+                            snapshot.thread_id or "",
+                            option_index,
+                            api_key=str(st.session_state.get("OPENAI_API_KEY", "")).strip(),
+                        )
                     st.session_state.snapshot = next_snapshot
                     st.rerun()
 
