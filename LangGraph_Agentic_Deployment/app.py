@@ -121,21 +121,22 @@ _sync_openai_key()
 st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
 st.caption("Describe a test scenario and let the AI generate the expected message sequence along with a sequence diagram.")
 
-# Allow user to provide OPENAI_API_KEY via the UI (overrides env/secrets for this session)
-sidebar_api_key = st.sidebar.text_input(
-    "OpenAI API Key",
+# Mandatory first step: provide OPENAI_API_KEY on the main screen.
+main_api_key = st.text_input(
+    "OpenAI API Key (Required)",
     value=st.session_state.get("OPENAI_API_KEY", ""),
     type="password",
     help="Paste your OpenAI API key here. It's stored only in session state for this app run.",
 )
-if sidebar_api_key != st.session_state.get("OPENAI_API_KEY", ""):
-    st.session_state["OPENAI_API_KEY"] = sidebar_api_key
+if main_api_key != st.session_state.get("OPENAI_API_KEY", ""):
+    st.session_state["OPENAI_API_KEY"] = main_api_key
     _sync_openai_key()
 
 if not has_required_openai_key():
     st.error(
-        "OPENAI_API_KEY is missing. Set it in the sidebar and try again."
+        "OPENAI_API_KEY is missing. Enter it above to continue."
     )
+    st.stop()
 
 with st.form("query_form", clear_on_submit=False):
     test_description = st.text_area(
