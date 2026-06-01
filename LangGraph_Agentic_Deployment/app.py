@@ -92,43 +92,49 @@ def _init_state() -> None:
         "query_counter": 0,
         "last_feedback_key": "",
         "decision_trail": [],
+        "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
+def _sync_openai_key() -> None:
+    api_key = str(st.session_state.get("OPENAI_API_KEY", "")).strip()
+    if not api_key:
+        return
+
+    os.environ["OPENAI_API_KEY"] = api_key
+    try:
+        import services.pipeline_service as _ps
+
+        if hasattr(_ps, "_load_environment_like_agentic_app"):
+            _ps._load_environment_like_agentic_app()
+    except Exception:
+        # Keep the API key in os.environ even if reloading the helper fails.
+        pass
+
+
 _init_state()
+_sync_openai_key()
 
 st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
 st.caption("Describe a test scenario and let the AI generate the expected message sequence along with a sequence diagram.")
 
 # Allow user to provide OPENAI_API_KEY via the UI (overrides env/secrets for this session)
-with st.sidebar.form("api_key_form", clear_on_submit=False):
-    sidebar_api_key = st.text_input(
-        "OpenAI API Key",
-        value=st.session_state.get("OPENAI_API_KEY", ""),
-        type="password",
-        help="Paste your OpenAI API key here. It's stored only in session state for this app run.",
-    )
-    save_key = st.form_submit_button("Set API Key")
-
-    if save_key and sidebar_api_key:
-        st.session_state["OPENAI_API_KEY"] = sidebar_api_key
-        os.environ["OPENAI_API_KEY"] = sidebar_api_key
-        try:
-            import services.pipeline_service as _ps
-
-            if hasattr(_ps, "_load_environment_like_agentic_app"):
-                # Re-run the internal loader so downstream checks pick up the new key.
-                _ps._load_environment_like_agentic_app()
-        except Exception:
-            # Being robust: failure to reload is non-fatal; key is still in os.environ
-            pass
+sidebar_api_key = st.sidebar.text_input(
+    "OpenAI API Key",
+    value=st.session_state.get("OPENAI_API_KEY", ""),
+    type="password",
+    help="Paste your OpenAI API key here. It's stored only in session state for this app run.",
+)
+if sidebar_api_key != st.session_state.get("OPENAI_API_KEY", ""):
+    st.session_state["OPENAI_API_KEY"] = sidebar_api_key
+    _sync_openai_key()
 
 if not has_required_openai_key():
     st.error(
-        "OPENAI_API_KEY is missing. Set it."
+        "OPENAI_API_KEY is missing. Set it in the sidebar and try again."
     )
 
 with st.form("query_form", clear_on_submit=False):
