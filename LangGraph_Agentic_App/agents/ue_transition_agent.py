@@ -26,6 +26,7 @@ def create_ue_transition_agent(openai_api_key: str):
         state_or_transition: Annotated[str, "State ID (NR) or transition string (LTE)"],
         context: Annotated[str, "Table context to extract messages from"],
     ) -> dict:
+        """Extract signalling messages from a state or transition table context."""
         tool_llm = ChatOpenAI(
             model=LLM_MODEL,
             temperature=0.1,

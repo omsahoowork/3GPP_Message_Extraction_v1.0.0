@@ -26,6 +26,7 @@ def create_shortlist_agent(openai_api_key: str):
         question: str,
         contexts_json: str,
     ) -> dict:
+        """Rank context candidates and return selected option indices."""
         from core.prompts import CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT
 
         rank_llm = ChatOpenAI(
