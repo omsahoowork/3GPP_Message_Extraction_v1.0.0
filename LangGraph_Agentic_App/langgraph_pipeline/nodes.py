@@ -799,16 +799,73 @@ def _load_state_loop_map(rat: str) -> dict[str, str]:
     return loop_map
 
 
+def _load_state_alias_map(rat: str) -> dict[str, str]:
+    """Load alias-to-state-id mappings from data_states markdown tables.
+
+    Example mappings:
+    - "NR RRC_CONNECTED" -> "3N-A"
+    - "NR RRC_IDLE" -> "1N-A"
+    """
+    states_file = "nr_states.md" if rat == "nr" else "lte_states.md"
+    path = Path(__file__).parent.parent / "data_states" / states_file
+    if not path.exists():
+        return {}
+
+    alias_map: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|"):
+            continue
+
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+
+        state_cell = cells[0]
+        if not state_cell or state_cell.lower() in {"state", "state id"}:
+            continue
+        if state_cell.startswith("---"):
+            continue
+
+        state_id = _normalise_state_key(state_cell)
+        if not state_id:
+            continue
+
+        # Build aliases only from fields that are specific enough for lookup.
+        for alias_cell in cells[1:-1]:
+            alias = _normalise_state_key(alias_cell)
+            if not alias:
+                continue
+
+            # Keep explicit state-like aliases and RRC-labelled aliases only.
+            if "RRC" in alias or re.search(r"\b\d+[A-Z](?:-[A-Z0-9]+)?\b", alias):
+                alias_map.setdefault(alias, state_id)
+
+    return alias_map
+
+
 def _extract_state_key_from_ue_state(ue_state: str, rat: str) -> str:
     text = str(ue_state or "")
+    text_upper = text.upper()
     if rat == "nr":
-        match = re.search(r"\b\d[A-Z]-[A-Z]\b", text, flags=re.IGNORECASE)
+        # Match IDs like 3N-A, 2E-A, 10N-A and tolerate optional spaces around '-'.
+        match = re.search(r"\b\d+[A-Z](?:\s*-\s*[A-Z0-9]+)\b", text, flags=re.IGNORECASE)
         if match:
             return _normalise_state_key(match.group(0))
     else:
-        match = re.search(r"\bSTATE\s*([0-9][A-Z]?(?:-[A-Z0-9]+)?)\b", text, flags=re.IGNORECASE)
+        match = re.search(r"\bSTATE\s*([0-9]+[A-Z]?(?:-[A-Z0-9]+)?)\b", text, flags=re.IGNORECASE)
         if match:
             return _normalise_state_key(match.group(1))
+
+    # Alias-based fallback from lookup tables (e.g., "NR RRC_CONNECTED" -> "3N-A").
+    alias_map = _load_state_alias_map(rat)
+    normalised_text = _normalise_state_key(text_upper)
+    if normalised_text in alias_map:
+        return alias_map[normalised_text]
+
+    for alias in sorted(alias_map.keys(), key=len, reverse=True):
+        if alias and alias in normalised_text:
+            return alias_map[alias]
 
     return _normalise_state_key(text)
 
