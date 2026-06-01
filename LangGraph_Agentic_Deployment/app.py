@@ -13,7 +13,6 @@ from services.pipeline_service import (
     DEPLOYMENT_DIR,
     PipelineSnapshot,
     continue_pipeline,
-    has_required_openai_key,
     node_status_text,
     start_pipeline,
     write_runtime_query_config,
@@ -92,6 +91,7 @@ def _init_state() -> None:
         "query_counter": 0,
         "last_feedback_key": "",
         "decision_trail": [],
+        "openaikey": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -100,14 +100,27 @@ def _init_state() -> None:
 
 _init_state()
 
+# ── OpenAI API Key Entry (main window only) ──────────────────────────────────
+with st.form("api_key_form", clear_on_submit=False):
+    key_input = st.text_input(
+        "OpenAI API Key",
+        type="password",
+        placeholder="Enter your OpenAI API key to continue...",
+    )
+    key_submitted = st.form_submit_button("Confirm Key")
+
+if key_submitted and key_input.strip():
+    st.session_state.openaikey = key_input.strip()
+    st.rerun()
+
+if not st.session_state.openaikey:
+    st.info("Please enter your OpenAI API key above to load the application.")
+    st.stop()
+
+os.environ["OPENAI_API_KEY"] = st.session_state.openaikey
+
 st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
 st.caption("Describe a test scenario and let the AI generate the expected message sequence along with a sequence diagram.")
-
-if not has_required_openai_key():
-    st.error(
-        "OPENAI_API_KEY is missing. Set it in KG_Generation_Pipeline/RAG_KG_Integration/.env "
-        "or Streamlit secrets, then restart the app."
-    )
 
 with st.form("query_form", clear_on_submit=False):
     test_description = st.text_area(
@@ -122,8 +135,6 @@ with st.form("query_form", clear_on_submit=False):
 if submitted:
     if not str(test_description).strip():
         st.error("Test Description is required.")
-    elif not has_required_openai_key():
-        st.error("Cannot start pipeline without OPENAI_API_KEY.")
     else:
         st.session_state.query_counter += 1
         query_id = f"q{st.session_state.query_counter}"

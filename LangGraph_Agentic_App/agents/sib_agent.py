@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Annotated
 
 from langchain_openai import ChatOpenAI
@@ -16,7 +17,7 @@ from tools.sib_tools import lookup_sib_combination, sib_lookup_table_text
 def create_sib_agent():
     """Create a ReAct agent for SIB message extraction."""
     # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1)
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
     
     tools = [lookup_sib_combination, sib_lookup_table_text]
     

@@ -14,6 +14,7 @@ These tools call the LLM and return structured outputs for downstream graph use.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Annotated
@@ -39,7 +40,7 @@ from core.utils import (
 
 def _get_llm() -> ChatOpenAI:
     """Return a shared LLM instance (lazy, not module-level)."""
-    return ChatOpenAI(model=LLM_MODEL, temperature=0.1)
+    return ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
 # def _get_llm() -> ChatOllama:
 #     """Return a shared LLM instance (lazy, not module-level)."""
 #     return ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)

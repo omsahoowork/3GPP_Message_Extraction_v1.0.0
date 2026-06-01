@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Annotated
 
@@ -32,7 +33,7 @@ def extract_messages_from_context(
         Dict with message_sequence (list of dicts)
     """
     # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1)
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
     
     if rat == "nr":
         prompt = NR_RRC_TABLE_MESSAGE_PROMPT.format(
@@ -57,7 +58,7 @@ def extract_messages_from_context(
 def create_ue_transition_agent():
     """Create a ReAct agent for UE state transition extraction."""
     # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1)
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
     
     tools = [get_ue_state_loop_path, retrieve_state_transition_context, extract_messages_from_context]
     

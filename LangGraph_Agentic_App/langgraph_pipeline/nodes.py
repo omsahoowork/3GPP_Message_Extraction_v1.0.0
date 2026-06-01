@@ -23,6 +23,7 @@ from __future__ import annotations
 import csv
 from functools import lru_cache
 import json
+import os
 import re
 from pathlib import Path
 
@@ -78,7 +79,7 @@ from core.prompts import (
 
 
 def _get_llm() -> ChatOpenAI:
-    return ChatOpenAI(model=LLM_MODEL, temperature=0.1)
+    return ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
 
 # def _get_llm() -> ChatOllama:
 #     """Return a shared LLM instance (lazy, not module-level)."""

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.tools import tool
@@ -33,7 +34,7 @@ def rank_contexts(
     from core.prompts import CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT
     
     # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1)
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
     
     prompt = CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT.format(
         query_config=query_config_json,
@@ -53,7 +54,7 @@ def rank_contexts(
 def create_shortlist_agent():
     """Create a ReAct agent for context shortlisting."""
     # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1)
+    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
     # llm = ChatAnthropic(model=LLM_MODEL, temperature=0.1)
     
     tools = [rank_contexts]
