@@ -105,7 +105,7 @@ def run_shortlist_agent(
 
     # First, rank the contexts
     indexed_contexts = [
-        {"option_index": i, "context": ctx}
+        {"option_index": i, "context": str(ctx or "")[:2000]}
         for i, ctx in enumerate(raw_contexts)
     ]
     
