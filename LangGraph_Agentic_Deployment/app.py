@@ -123,32 +123,29 @@ def _init_state() -> None:
 _init_state()
 
 # ── LLM Selection + API Key Entry (main window only) ────────────────────────
-selected_llm_label = st.session_state.get("selected_llm_label", "GPT 5.2")
+selected_llm_label = st.selectbox(
+    "Choose Model",
+    options=list(MODEL_CHOICES.keys()),
+    index=list(MODEL_CHOICES.keys()).index(st.session_state.get("selected_llm_label", "GPT 5.2")) if st.session_state.get("selected_llm_label", "GPT 5.2") in MODEL_CHOICES else 0,
+)
 active_choice = MODEL_CHOICES.get(selected_llm_label, MODEL_CHOICES["GPT 5.2"])
+st.session_state.selected_llm_label = selected_llm_label
+st.session_state.llm_provider = active_choice["provider"]
+st.session_state.llm_model = active_choice["model"]
 
 with st.form("api_key_form", clear_on_submit=False):
-    selected_label = st.selectbox(
-        "Choose Model",
-        options=list(MODEL_CHOICES.keys()),
-        index=list(MODEL_CHOICES.keys()).index(selected_llm_label) if selected_llm_label in MODEL_CHOICES else 0,
-    )
-    selected_choice = MODEL_CHOICES[selected_label]
-    existing_key = st.session_state.get(selected_choice["session_key"], "")
+    existing_key = st.session_state.get(active_choice["session_key"], "")
     key_input = st.text_input(
-        selected_choice["key_label"],
+        active_choice["key_label"],
         type="password",
         value=existing_key,
-        placeholder=selected_choice["placeholder"],
+        placeholder=active_choice["placeholder"],
     )
     key_submitted = st.form_submit_button("Confirm Key")
 
 if key_submitted:
-    selected_choice = MODEL_CHOICES[selected_label]
-    st.session_state.selected_llm_label = selected_label
-    st.session_state.llm_provider = selected_choice["provider"]
-    st.session_state.llm_model = selected_choice["model"]
     if key_input.strip():
-        st.session_state[selected_choice["session_key"]] = key_input.strip()
+        st.session_state[active_choice["session_key"]] = key_input.strip()
     st.rerun()
 
 active_choice = MODEL_CHOICES[st.session_state.selected_llm_label]
