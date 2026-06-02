@@ -14,17 +14,14 @@ These tools call the LLM and return structured outputs for downstream graph use.
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Annotated
 
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_ollama import ChatOllama
 
-from config import LLM_MODEL, CONTEXT_TEMPLATE_PATH
+from config import CONTEXT_TEMPLATE_PATH
+from core.llm import get_llm
 from core.prompts import (
     CONTEXT_JSON_EXTRACTION_PROMPT,
     QUERY_ENHANCEMENT_PROMPT,
@@ -38,16 +35,9 @@ from core.utils import (
 )
 
 
-def _get_llm() -> ChatOpenAI:
+def _get_extraction_llm(llm_provider: str = "", llm_model: str = ""):
     """Return a shared LLM instance (lazy, not module-level)."""
-    return ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
-# def _get_llm() -> ChatOllama:
-#     """Return a shared LLM instance (lazy, not module-level)."""
-#     return ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-
-# def _get_llm():
-#     """Return Anthropic Sonnet 4.6 client for optional extraction paths."""
-#     return ChatAnthropic(model="claude-sonnet-4-6", temperature=0.1)
+    return get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
 
 
 def _parse_response(raw: str) -> list[dict]:
@@ -185,13 +175,15 @@ def query_enhancement_rag(
         str,
         "Retrieved specification text (output of retrieve_rag_context['context'])",
     ],
+    llm_provider: Annotated[str, "Selected LLM provider for this run."] = "",
+    llm_model: Annotated[str, "Resolved LLM model for this run."] = "",
 ) -> str:
     """Enhance the query for 3GPP specification retrieval using RAG context only.
     Returns
     -------
     str       The enhanced query string to be used for downstream retrieval and extraction nodes.
     """
-    llm = _get_llm()
+    llm = _get_extraction_llm(llm_provider=llm_provider, llm_model=llm_model)
     prompt = QUERY_ENHANCEMENT_PROMPT.format(query_config=query_config, context=context)
     raw = llm.invoke(prompt).content
     return raw
@@ -215,6 +207,8 @@ def extract_messages_rag(
         int,
         "1-based selected test-purpose index. 0 disables TP filtering.",
     ] = 0,
+    llm_provider: Annotated[str, "Selected LLM provider for this run."] = "",
+    llm_model: Annotated[str, "Resolved LLM model for this run."] = "",
 ) -> list[dict]:
     """Extract the ordered 3GPP signalling message sequence using RAG context only.
 
@@ -226,7 +220,7 @@ def extract_messages_rag(
     list[dict]
         Ordered list of dicts with "name", "direction" ("GNB_TO_UE" or "UE_TO_GNB"), "cell_id", and "layer".
     """
-    llm = _get_llm()
+    llm = _get_extraction_llm(llm_provider=llm_provider, llm_model=llm_model)
     prompt = RAG_EXTRACTION_PROMPT.format(
         question=question,
         context=context,
@@ -248,6 +242,8 @@ def generate_context_fields_json(
         str,
         "Optional JSON object string describing the target fields. If empty, the default context_enhancement_user.json template is used.",
     ] = "",
+    llm_provider: Annotated[str, "Selected LLM provider for this run."] = "",
+    llm_model: Annotated[str, "Resolved LLM model for this run."] = "",
 ) -> dict:
     """Populate the context selection JSON fields from a context string.
 
@@ -257,7 +253,7 @@ def generate_context_fields_json(
     
     Retries up to 3 times on JSON parse failure with self-correction prompt.
     """
-    llm = _get_llm()
+    llm = _get_extraction_llm(llm_provider=llm_provider, llm_model=llm_model)
     schema = _load_context_template() if not schema_json.strip() else json.loads(schema_json)
     if not isinstance(schema, dict):
         raise ValueError("schema_json must decode to a JSON object")

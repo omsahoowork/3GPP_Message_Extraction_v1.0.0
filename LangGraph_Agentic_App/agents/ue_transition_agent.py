@@ -1,64 +1,51 @@
 """UE state transition message extraction agent."""
 from __future__ import annotations
 
+from functools import lru_cache
 import json
-import os
 import re
 from typing import Annotated
 
 from langchain_core.tools import tool
-from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from config import LLM_MODEL
+from core.llm import get_llm
 from core.prompts import UE_TRANSITION_AGENT_SYSTEM_PROMPT, NR_RRC_TABLE_MESSAGE_PROMPT, LTE_TRANSITION_TABLE_MESSAGE_PROMPT
 from tools.state_tools import get_ue_state_loop_path, retrieve_state_transition_context
 
 
-@tool
-def extract_messages_from_context(
-    rat: Annotated[str, "RAT type: 'nr' or 'lte'"],
-    state_or_transition: Annotated[str, "State ID (NR) or transition string (LTE)"],
-    context: Annotated[str, "Table context to extract messages from"],
-) -> dict:
-    """Extract signalling messages from a state/transition context.
-
-    Args:
-        rat: Either 'nr' or 'lte'
-        state_or_transition: State or transition identifier
-        context: The table context text
-
-    Returns:
-        Dict with message_sequence (list of dicts)
-    """
-    # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
-    
-    if rat == "nr":
-        prompt = NR_RRC_TABLE_MESSAGE_PROMPT.format(
-            rrc_lookup_query=state_or_transition,
-            table_context=context,
-        )
-    else:
-        prompt = LTE_TRANSITION_TABLE_MESSAGE_PROMPT.format(
-            transition_query=state_or_transition,
-            table_context=context,
-        )
-    
-    raw = llm.invoke(prompt).content
-    try:
-        parsed = json.loads(raw)
-        messages = parsed.get("message_sequence", []) if isinstance(parsed, dict) else []
-        return {"message_sequence": messages if isinstance(messages, list) else []}
-    except (json.JSONDecodeError, ValueError):
-        return {"message_sequence": []}
-
-
-def create_ue_transition_agent():
+@lru_cache(maxsize=8)
+def create_ue_transition_agent(llm_provider: str, llm_model: str):
     """Create a ReAct agent for UE state transition extraction."""
-    # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
+    llm = get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
+
+    @tool
+    def extract_messages_from_context(
+        rat: Annotated[str, "RAT type: 'nr' or 'lte'"],
+        state_or_transition: Annotated[str, "State ID (NR) or transition string (LTE)"],
+        context: Annotated[str, "Table context to extract messages from"],
+    ) -> dict:
+        """Extract signalling messages from a state/transition context."""
+        extraction_llm = get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
+
+        if rat == "nr":
+            prompt = NR_RRC_TABLE_MESSAGE_PROMPT.format(
+                rrc_lookup_query=state_or_transition,
+                table_context=context,
+            )
+        else:
+            prompt = LTE_TRANSITION_TABLE_MESSAGE_PROMPT.format(
+                transition_query=state_or_transition,
+                table_context=context,
+            )
+
+        raw = extraction_llm.invoke(prompt).content
+        try:
+            parsed = json.loads(raw)
+            messages = parsed.get("message_sequence", []) if isinstance(parsed, dict) else []
+            return {"message_sequence": messages if isinstance(messages, list) else []}
+        except (json.JSONDecodeError, ValueError):
+            return {"message_sequence": []}
     
     tools = [get_ue_state_loop_path, retrieve_state_transition_context, extract_messages_from_context]
     
@@ -70,12 +57,11 @@ def create_ue_transition_agent():
     return agent
 
 
-_ue_transition_agent = create_ue_transition_agent()
-
-
 def run_ue_transition_agent(
     ue_state: str,
     rat: str,
+    llm_provider: str = "",
+    llm_model: str = "",
     max_iterations: int = 20,
 ) -> dict:
     """Run the UE transition agent to extract state transition messages.
@@ -244,7 +230,8 @@ Validate that all states in the loop path are covered before finishing.
         return flat_messages, state_rows, loop_states
 
     try:
-        result = _ue_transition_agent.invoke(
+        ue_transition_agent = create_ue_transition_agent(llm_provider, llm_model)
+        result = ue_transition_agent.invoke(
             {"messages": [{"role": "user", "content": prompt}]},
             config={"recursion_limit": max_iterations},
         )

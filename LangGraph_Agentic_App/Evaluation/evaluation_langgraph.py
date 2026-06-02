@@ -13,16 +13,15 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 import dotenv
-from langchain_anthropic import ChatAnthropic
 import pandas as pd
 from datasets import Dataset
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_openai import ChatOpenAI
 from ragas import evaluate
 from ragas.metrics import (
     answer_correctness,
 )
 # LLM_MODEL = "gpt-4o-mini"
+LLM_PROVIDER = "anthropic"
 LLM_MODEL = "claude-sonnet-4-6"
 
 LANGGRAPH_ROOT = Path(__file__).resolve().parent.parent
@@ -34,6 +33,7 @@ print(f"Loading environment variables from: {ENV_PATH}")
 if dotenv is not None:
 	dotenv.load_dotenv(dotenv_path=ENV_PATH)
 import config  # noqa: F401  # Loads LangSmith env vars for tracing.
+from core.llm import get_llm
 from langsmith import traceable
 
 # Disable tracing by default to avoid RAGAS callback handler crashes on empty traces.
@@ -83,8 +83,7 @@ LANGSMITH_TRACING_ENABLED = _prepare_langsmith_tracing()
 def _initialize_ragas_evaluator():
 	"""Initialize RAGAS LLM and embeddings for answer evaluation."""
 	try:
-		llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
-		# llm = ChatAnthropic(model=LLM_MODEL, temperature=0.1)
+		llm = get_llm(provider=LLM_PROVIDER, model=LLM_MODEL, temperature=0.1)
 		model_cache_dir = str(LANGGRAPH_ROOT.parent.parent / "models")
 		embeddings = HuggingFaceEmbeddings(
 			model_name="BAAI/bge-large-en-v1.5",

@@ -14,6 +14,8 @@ def run_procedure_agent(
     other_cells: list[str] | None = None,
     other_participating_cell_ids: list[str] | None = None,
     test_purpose_index: int | None = None,
+    llm_provider: str = "",
+    llm_model: str = "",
     max_retries: int = AGENT_MAX_RETRIES,
 ) -> list[dict]:
     """Extract procedure messages.
@@ -44,6 +46,8 @@ def run_procedure_agent(
             "serving_cell_id": serving_cell_id,
             "other_participating_cell_ids": json.dumps(participant_cells, ensure_ascii=False),
             "test_purpose_index": int(test_purpose_index) if isinstance(test_purpose_index, int) else 0,
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
         })
         if not isinstance(messages, list):
             messages = []

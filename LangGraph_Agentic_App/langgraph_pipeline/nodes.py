@@ -27,15 +27,14 @@ import os
 import re
 from pathlib import Path
 
-from langchain_openai import ChatOpenAI
 from langsmith import traceable
 from langgraph.types import interrupt
 from langchain_ollama import ChatOllama
-from langchain_anthropic import ChatAnthropic
 
 from langchain_core.output_parsers import JsonOutputParser
 
 from langgraph_pipeline.state import PipelineState
+from core.llm import get_llm, resolve_llm_config
 from core.embeddings import get_embeddings
 from tools.retrieval_tool import retrieve_rag_context, combine_context
 from core.retrieval import find_sibling_chunks
@@ -68,7 +67,7 @@ from agents import (
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import numpy as np
-from config import LLM_MODEL, QUERY_CONFIG_PATH, QUERY_ENHANCE_VECTOR_WEIGHT, QUERY_ENHANCE_MMR_WEIGHT, QUERY_ENHANCE_BM25_WEIGHT, ANSWER_EXTRACT_VECTOR_WEIGHT, ANSWER_EXTRACT_MMR_WEIGHT, ANSWER_EXTRACT_BM25_WEIGHT, QUERY_ENHANCE_TOP_SEARCH, QUERY_ENHANCE_TOP_RERANK, ANSWER_EXTRACT_TOP_SEARCH, ANSWER_EXTRACT_TOP_RERANK, VISUALIZATIONS_DIR, EVALUATION_DIR
+from config import LLM_MODEL_OPENAI, QUERY_CONFIG_PATH, QUERY_ENHANCE_VECTOR_WEIGHT, QUERY_ENHANCE_MMR_WEIGHT, QUERY_ENHANCE_BM25_WEIGHT, ANSWER_EXTRACT_VECTOR_WEIGHT, ANSWER_EXTRACT_MMR_WEIGHT, ANSWER_EXTRACT_BM25_WEIGHT, QUERY_ENHANCE_TOP_SEARCH, QUERY_ENHANCE_TOP_RERANK, ANSWER_EXTRACT_TOP_SEARCH, ANSWER_EXTRACT_TOP_RERANK, VISUALIZATIONS_DIR, EVALUATION_DIR
 from core.prompts import (
     LTE_TRANSITION_TABLE_MESSAGE_PROMPT,
     NR_RRC_TABLE_MESSAGE_PROMPT,
@@ -78,16 +77,13 @@ from core.prompts import (
 )
 
 
-def _get_llm() -> ChatOpenAI:
-    return ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
+def _get_state_llm_config(state: PipelineState) -> tuple[str, str]:
+    return resolve_llm_config(state.get("llm_provider"), state.get("llm_model"))
 
-# def _get_llm() -> ChatOllama:
-#     """Return a shared LLM instance (lazy, not module-level)."""
-#     return ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
 
-# def _get_llm():
-#     """Return Anthropic Sonnet 4.6 client for optional extraction paths."""
-#     return ChatAnthropic(model="claude-sonnet-4-6", temperature=0.1)
+def _get_llm(state: PipelineState):
+    llm_provider, llm_model = _get_state_llm_config(state)
+    return get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
 
 
 def _get_json_parser() -> JsonOutputParser:
@@ -578,7 +574,7 @@ def _get_ragas_embeddings():
 
 @lru_cache(maxsize=1)
 def _get_ragas_llm() -> ChatOllama:
-    return ChatOllama(model=LLM_MODEL, temperature=0.1)
+    return ChatOllama(model=LLM_MODEL_OPENAI, temperature=0.1)
     # return ChatOpenAI(model=LLM_MODEL, temperature=0.1)
 
 
@@ -721,7 +717,7 @@ def _extract_sib_messages_for_combination(
         if direct_match:
             return direct_match
         
-        llm = _get_llm()
+        llm = _get_llm(state)
         parser = _get_json_parser()
         chain = llm | parser
         
@@ -924,7 +920,14 @@ def _get_test_purpose_value(context_json: dict) -> object:
     return []
 
 
-def _extract_transition_messages_from_table_context(*, rat: str, lookup: str, context: str) -> list[dict]:
+def _extract_transition_messages_from_table_context(
+    *,
+    rat: str,
+    lookup: str,
+    context: str,
+    llm_provider: str = "",
+    llm_model: str = "",
+) -> list[dict]:
     """Extract ordered transition messages from one LTE/NR table context."""
     lookup_text = str(lookup or "").strip()
     context_text = str(context or "").strip()
@@ -932,7 +935,7 @@ def _extract_transition_messages_from_table_context(*, rat: str, lookup: str, co
         return []
 
     try:
-        llm = _get_llm()
+        llm = get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
         parser = _get_json_parser()
         chain = llm | parser
         if str(rat).strip().lower() == "nr":
@@ -954,7 +957,13 @@ def _extract_transition_messages_from_table_context(*, rat: str, lookup: str, co
         return []
 
 
-def _build_state_grouped_transition_messages(*, rat: str, loop_path: list[str]) -> tuple[list[dict], list[str], bool, str]:
+def _build_state_grouped_transition_messages(
+    *,
+    rat: str,
+    loop_path: list[str],
+    llm_provider: str = "",
+    llm_model: str = "",
+) -> tuple[list[dict], list[str], bool, str]:
     """Build per-state message groups directly from 36.508/38.508 retrieval payload.
 
     LTE rule: transition messages are assigned to destination states only.
@@ -1007,6 +1016,8 @@ def _build_state_grouped_transition_messages(*, rat: str, loop_path: list[str]) 
                 rat="lte",
                 lookup=lookup,
                 context=context_text,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
             )
             _append_group(destination_state, messages)
 
@@ -1029,6 +1040,8 @@ def _build_state_grouped_transition_messages(*, rat: str, loop_path: list[str]) 
                 rat="nr",
                 lookup=lookup,
                 context=context_text,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
             )
             _append_group(state_id, messages)
 
@@ -1081,7 +1094,7 @@ def _extract_ue_transition_messages(
     if not transition_context:
         return [], loop_path, False, "retrieved 508 context is empty", [], []
 
-    llm = _get_llm()
+    llm = _get_llm(state)
     parser = _get_json_parser()
     chain = llm | parser
 
@@ -1311,9 +1324,17 @@ def load_config_node(state: PipelineState) -> dict:
     path = state["query_config_path"]
     with open(path) as f:
         config = json.load(f)
+    llm_provider, llm_model = resolve_llm_config(
+        config.get("llm_provider"),
+        config.get("llm_model"),
+    )
+    config["llm_provider"] = llm_provider
+    config["llm_model"] = llm_model
     spec_series_filter = _detect_spec_series_filter(config)
     return {
         "query_config": config,
+        "llm_provider": llm_provider,
+        "llm_model": llm_model,
         "initial_mandate_messages": [
             {"name": "MIB", "direction": "GNB_TO_UE", "cell_id": "", "layer": "SYSTEM"},
             {"name": "SIB1", "direction": "GNB_TO_UE", "cell_id": "", "layer": "SYSTEM"},
@@ -1348,7 +1369,9 @@ def enhance_query_node(state: PipelineState) -> dict:
         # Enhance the original question structure and format by appending the retrieved context
         enhanced_query: str = query_enhancement_rag.invoke({
             "query_config": str(state["query_config"]),
-            "context": contexts
+            "context": contexts,
+            "llm_provider": state.get("llm_provider", ""),
+            "llm_model": state.get("llm_model", ""),
         })
 
         return {
@@ -1367,7 +1390,7 @@ def direct_llm_answer_node(state: PipelineState) -> dict:
         if not question:
             return {"error": "direct_llm_answer_node failed: question is empty"}
 
-        llm = _get_llm()
+        llm = _get_llm(state)
         prompt = LLM_ONLY_PROMPT.format(question=question)
         raw = llm.invoke(prompt).content
         parsed = _parse_llm_only_response(raw)
@@ -1450,6 +1473,8 @@ def shortlist_contexts_node(state: PipelineState) -> dict:
             raw_source_docs=raw_source_docs,
             query_config=query_config,
             question=question,
+            llm_provider=str(state.get("llm_provider", "")),
+            llm_model=str(state.get("llm_model", "")),
         )
 
         shortlisted_indices = result.get("shortlisted_raw_indices", [])
@@ -1465,6 +1490,8 @@ def shortlist_contexts_node(state: PipelineState) -> dict:
             shortlisted_enhanced_contexts=shortlisted_enhanced_contexts,
             raw_contexts=raw_contexts,
             shortlisted_indices=shortlisted_indices,
+            llm_provider=str(state.get("llm_provider", "")),
+            llm_model=str(state.get("llm_model", "")),
         )
 
         print("\n" + "=" * 80)
@@ -1514,6 +1541,8 @@ def select_context_node(state: PipelineState) -> dict:
             shortlisted_enhanced_contexts=shortlisted_enhanced_contexts,
             raw_contexts=contexts,
             shortlisted_indices=shortlisted_indices,
+            llm_provider=str(state.get("llm_provider", "")),
+            llm_model=str(state.get("llm_model", "")),
         )
 
     # Pause here — surfaces enhanced_contexts to the caller.
@@ -1592,6 +1621,8 @@ def _find_sibling_sections(
     source_docs: list[str],
     raw_contexts: list[str],
     spec_series_filter: str | None = None,
+    llm_provider: str = "",
+    llm_model: str = "",
 ) -> list[dict]:
     """Find all sibling sections (including self) by scanning chunks.pkl directly.
 
@@ -1660,7 +1691,11 @@ def _find_sibling_sections(
                 seen_sections.add(doc_section)
                 siblings.append({
                     "section_id": doc_section,
-                    "summary": _generate_summary(raw_contexts[idx]),
+                    "summary": _generate_summary(
+                        raw_contexts[idx],
+                        llm_provider=llm_provider,
+                        llm_model=llm_model,
+                    ),
                     "raw_index": idx,
                     "corpus_context": raw_contexts[idx],
                 })
@@ -1672,7 +1707,11 @@ def _find_sibling_sections(
             ctx = raw_contexts[raw_index] if raw_index >= 0 else context_text
             siblings.append({
                 "section_id": bc,
-                "summary": _generate_summary(ctx),
+                "summary": _generate_summary(
+                    ctx,
+                    llm_provider=llm_provider,
+                    llm_model=llm_model,
+                ),
                 "raw_index": raw_index,
                 "corpus_context": context_text,
             })
@@ -1685,6 +1724,8 @@ def _shortlist_sibling_indices(
     siblings: list[dict],
     query_config: dict,
     question: str,
+    llm_provider: str = "",
+    llm_model: str = "",
 ) -> list[int]:
     """Use an LLM to keep only the most relevant sibling section indices.
 
@@ -1706,7 +1747,7 @@ def _shortlist_sibling_indices(
     )
 
     try:
-        llm = _get_llm()
+        llm = get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
         parser = _get_json_parser()
         parsed = (llm | parser).invoke(prompt)
         selected = parsed.get("selected_option_indices", [])
@@ -1723,7 +1764,12 @@ def _shortlist_sibling_indices(
         return list(range(len(siblings)))
 
 
-def _generate_summary(context: str, max_chars: int = 300) -> str:
+def _generate_summary(
+    context: str,
+    max_chars: int = 300,
+    llm_provider: str = "",
+    llm_model: str = "",
+) -> str:
     """Extract a concise test objective from context using the LLM.
 
     Only the first 2000 chars are used to keep latency/cost bounded.
@@ -1742,7 +1788,7 @@ def _generate_summary(context: str, max_chars: int = 300) -> str:
     )
 
     try:
-        llm = _get_llm()
+        llm = get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
         raw = llm.invoke(prompt).content
         objective = " ".join(str(raw or "").strip().split())
         if not objective:
@@ -1776,6 +1822,8 @@ def _build_shortlist_display_options(
     shortlisted_enhanced_contexts: list[dict],
     raw_contexts: list[str],
     shortlisted_indices: list[int],
+    llm_provider: str = "",
+    llm_model: str = "",
 ) -> list[dict]:
     """Return lightweight first-selection payloads with heading+objective only."""
     options: list[dict] = []
@@ -1801,7 +1849,11 @@ def _build_shortlist_display_options(
                 or str(context_json.get("summary", "")).strip()
             )
         if not objective:
-            objective = _generate_summary(raw_context)
+            objective = _generate_summary(
+                raw_context,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+            )
 
         options.append(
             {
@@ -1815,7 +1867,12 @@ def _build_shortlist_display_options(
 
 
 @lru_cache(maxsize=512)
-def _extract_spec_reference_with_llm(text: str, purpose: str) -> tuple[str, str]:
+def _extract_spec_reference_with_llm(
+    text: str,
+    purpose: str,
+    llm_provider: str = "",
+    llm_model: str = "",
+) -> tuple[str, str]:
     """Extract (spec_id, section_id) using LLM from reference context text."""
     payload = str(text or "").strip()
     if not payload:
@@ -1841,7 +1898,7 @@ def _extract_spec_reference_with_llm(text: str, purpose: str) -> tuple[str, str]
     prompt += f"\nContext:\n{snippet}"
 
     try:
-        llm = _get_llm()
+        llm = get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
         parser = _get_json_parser()
         parsed = (llm | parser).invoke(prompt)
         spec_id = str(parsed.get("spec_id", "")).strip() or "-"
@@ -1897,10 +1954,17 @@ def _build_reference_lines(state: PipelineState) -> tuple[list[str], list[str], 
         _spec_id, section_id = _extract_spec_reference_with_llm(
             matched_context or fallback_doc,
             "ue_transition",
+            llm_provider=str(state.get("llm_provider", "")),
+            llm_model=str(state.get("llm_model", "")),
         )
         ue_refs.append(f"{state_label} - {ue_transition_spec} $ {section_id}")
 
-    proc_spec, proc_section = _extract_spec_reference_with_llm(fallback_doc, "procedure")
+    proc_spec, proc_section = _extract_spec_reference_with_llm(
+        fallback_doc,
+        "procedure",
+        llm_provider=str(state.get("llm_provider", "")),
+        llm_model=str(state.get("llm_model", "")),
+    )
     # Keep procedure spec normalized to 3GPP dotted style without suffix noise.
     proc_match = re.search(r"\b(3[68](?:\.|)523)\b", str(proc_spec))
     if proc_match:
@@ -1989,6 +2053,8 @@ def select_final_sibling_section_node(state: PipelineState) -> dict:
             source_docs=raw_source_docs,
             raw_contexts=raw_contexts,
             spec_series_filter=spec_series_filter,
+            llm_provider=str(state.get("llm_provider", "")),
+            llm_model=str(state.get("llm_model", "")),
         )
         
         if len(siblings) <= 1:
@@ -2003,6 +2069,8 @@ def select_final_sibling_section_node(state: PipelineState) -> dict:
             siblings=siblings,
             query_config=state.get("query_config") or {},
             question=str(state.get("question") or ""),
+            llm_provider=str(state.get("llm_provider", "")),
+            llm_model=str(state.get("llm_model", "")),
         )
         # Format shortlisted sibling options for display
         display_options = []
@@ -2087,7 +2155,11 @@ def finalize_section_selection_node(state: PipelineState) -> dict:
             final_source_doc = final_sibling.get("section_id", "")
         
         # Generate full context_enhancement_json for the final selection
-        context_json = generate_context_fields_json.invoke({"context": final_context})
+        context_json = generate_context_fields_json.invoke({
+            "context": final_context,
+            "llm_provider": state.get("llm_provider", ""),
+            "llm_model": state.get("llm_model", ""),
+        })
         
         # Prepare final context
         final_context_user_choice = combine_context.invoke({"context": [final_context]})
@@ -2182,6 +2254,8 @@ def extract_sib_messages_node(state: PipelineState) -> dict:
                 rat=rat,
                 combination=system_info_combination,
                 cell_id=cell_id,
+                llm_provider=str(state.get("llm_provider", "")),
+                llm_model=str(state.get("llm_model", "")),
             )
             cell_sib_messages = _coerce_messages_payload(cell_sib_messages)
             if not cell_sib_messages:
@@ -2270,6 +2344,8 @@ def extract_ue_transition_messages_node(state: PipelineState) -> dict:
         result = run_ue_transition_agent(
             ue_state=ue_state,
             rat=rat,
+            llm_provider=str(state.get("llm_provider", "")),
+            llm_model=str(state.get("llm_model", "")),
             max_iterations=20,
         )
 
@@ -2312,6 +2388,8 @@ def extract_ue_transition_messages_node(state: PipelineState) -> dict:
             fallback_rows, fallback_contexts, fallback_complete, fallback_error = _build_state_grouped_transition_messages(
                 rat=rat,
                 loop_path=loop_path,
+                llm_provider=str(state.get("llm_provider", "")),
+                llm_model=str(state.get("llm_model", "")),
             )
             if fallback_rows:
                 ue_transition_state_messages = fallback_rows
@@ -2415,6 +2493,8 @@ def extract_procedure_messages_node(state: PipelineState) -> dict:
             serving_cell_id=serving_cell_id,
             other_cells=other_cells,
             test_purpose_index=int(test_purpose_index) if isinstance(test_purpose_index, int) else 0,
+            llm_provider=str(state.get("llm_provider", "")),
+            llm_model=str(state.get("llm_model", "")),
         )
         messages = _coerce_messages_payload(messages)
 

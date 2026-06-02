@@ -99,7 +99,10 @@ def _load_environment_like_agentic_app() -> None:
 _load_environment_like_agentic_app()
 
 
-def has_required_openai_key() -> bool:
+def has_required_llm_key(provider: str) -> bool:
+    provider_text = str(provider or "").strip().lower()
+    if provider_text == "anthropic":
+        return bool(str(os.getenv("ANTHROPIC_API_KEY", "")).strip())
     return bool(str(os.getenv("OPENAI_API_KEY", "")).strip())
 
 if str(AGENTIC_APP_DIR) not in sys.path:

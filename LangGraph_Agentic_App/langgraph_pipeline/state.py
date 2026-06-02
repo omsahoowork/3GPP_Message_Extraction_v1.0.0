@@ -61,6 +61,12 @@ class PipelineState(TypedDict, total=False):
     query_config: dict
     """Parsed contents of the config JSON file, populated by a load_config node."""
 
+    llm_provider: Optional[str]
+    """Selected LLM provider for the run, e.g. "openai" or "anthropic"."""
+
+    llm_model: Optional[str]
+    """Resolved model name for the selected provider, persisted for deterministic resume."""
+
     spec_series_filter: Optional[str]
     """Target spec family for retrieval filtering: "36" (LTE) or "38" (NR)."""
 

@@ -8,6 +8,8 @@ def build_query_config(
     test_description: str,
     rat: str,
     additional_prompt: str,
+    llm_provider: str,
+    llm_model: str,
 ) -> dict[str, Any]:
     rat_clean = str(rat or "").strip().upper()
     rat_value = "NR SA" if rat_clean == "NR" else "LTE"
@@ -21,6 +23,8 @@ def build_query_config(
         "Expected Outcome": "SUCCESS",
         "Cell Relation": "INTER CELL",
         "Frequency Relation": "INTER FREQUENCY",
+        "llm_provider": str(llm_provider or "").strip().lower(),
+        "llm_model": str(llm_model or "").strip(),
     }
 
     extra = str(additional_prompt or "").strip()

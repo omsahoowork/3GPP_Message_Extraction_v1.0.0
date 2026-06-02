@@ -84,6 +84,24 @@ st.markdown(
 )
 
 
+MODEL_CHOICES: dict[str, dict[str, str]] = {
+    "GPT 5.2": {
+        "provider": "openai",
+        "model": "gpt-5.2",
+        "key_label": "OpenAI API Key",
+        "placeholder": "Enter your OpenAI API key to continue...",
+        "session_key": "openai_api_key",
+    },
+    "Claude Sonnet 4.6": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-6",
+        "key_label": "Anthropic API Key",
+        "placeholder": "Enter your Anthropic API key to continue...",
+        "session_key": "anthropic_api_key",
+    },
+}
+
+
 def _init_state() -> None:
     defaults: dict[str, Any] = {
         "snapshot": None,
@@ -91,7 +109,11 @@ def _init_state() -> None:
         "query_counter": 0,
         "last_feedback_key": "",
         "decision_trail": [],
-        "openaikey": "",
+        "selected_llm_label": "GPT 5.2",
+        "llm_provider": "openai",
+        "llm_model": "gpt-5.2",
+        "openai_api_key": "",
+        "anthropic_api_key": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -100,24 +122,46 @@ def _init_state() -> None:
 
 _init_state()
 
-# ── OpenAI API Key Entry (main window only) ──────────────────────────────────
+# ── LLM Selection + API Key Entry (main window only) ────────────────────────
+selected_llm_label = st.session_state.get("selected_llm_label", "GPT 5.2")
+active_choice = MODEL_CHOICES.get(selected_llm_label, MODEL_CHOICES["GPT 5.2"])
+
 with st.form("api_key_form", clear_on_submit=False):
+    selected_label = st.selectbox(
+        "Choose Model",
+        options=list(MODEL_CHOICES.keys()),
+        index=list(MODEL_CHOICES.keys()).index(selected_llm_label) if selected_llm_label in MODEL_CHOICES else 0,
+    )
+    selected_choice = MODEL_CHOICES[selected_label]
+    existing_key = st.session_state.get(selected_choice["session_key"], "")
     key_input = st.text_input(
-        "OpenAI API Key",
+        selected_choice["key_label"],
         type="password",
-        placeholder="Enter your OpenAI API key to continue...",
+        value=existing_key,
+        placeholder=selected_choice["placeholder"],
     )
     key_submitted = st.form_submit_button("Confirm Key")
 
-if key_submitted and key_input.strip():
-    st.session_state.openaikey = key_input.strip()
+if key_submitted:
+    selected_choice = MODEL_CHOICES[selected_label]
+    st.session_state.selected_llm_label = selected_label
+    st.session_state.llm_provider = selected_choice["provider"]
+    st.session_state.llm_model = selected_choice["model"]
+    if key_input.strip():
+        st.session_state[selected_choice["session_key"]] = key_input.strip()
     st.rerun()
 
-if not st.session_state.openaikey:
-    st.info("Please enter your OpenAI API key above to load the application.")
-    st.stop()
+active_choice = MODEL_CHOICES[st.session_state.selected_llm_label]
+active_key = str(st.session_state.get(active_choice["session_key"], "")).strip()
 
-os.environ["OPENAI_API_KEY"] = st.session_state.openaikey
+if st.session_state.openai_api_key:
+    os.environ["OPENAI_API_KEY"] = st.session_state.openai_api_key
+if st.session_state.anthropic_api_key:
+    os.environ["ANTHROPIC_API_KEY"] = st.session_state.anthropic_api_key
+
+if not active_key:
+    st.info(f"Please choose a model and enter the matching {active_choice['key_label']} above to load the application.")
+    st.stop()
 
 st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
 st.caption("Describe a test scenario and let the AI generate the expected message sequence along with a sequence diagram.")
@@ -142,16 +186,20 @@ if submitted:
             test_description=test_description,
             rat=rat,
             additional_prompt=additional_prompt,
+            llm_provider=st.session_state.llm_provider,
+            llm_model=st.session_state.llm_model,
         )
         config_path = write_runtime_query_config(query_config, run_id=query_id)
 
         with st.spinner("Running pipeline: retrieval and objective-based shortlisting..."):
             snapshot = start_pipeline(
                 config_path=config_path,
-                tags=["streamlit", "agentic-app", rat.lower()],
+                tags=["streamlit", "agentic-app", rat.lower(), st.session_state.llm_provider],
                 metadata={
                     "query_id": query_id,
                     "rat": rat,
+                    "llm_provider": st.session_state.llm_provider,
+                    "llm_model": st.session_state.llm_model,
                 },
             )
 
@@ -160,6 +208,8 @@ if submitted:
             "test_description": test_description,
             "rat": rat,
             "additional_prompt": additional_prompt,
+            "llm_provider": st.session_state.llm_provider,
+            "llm_model": st.session_state.llm_model,
             "query_id": query_id,
             "config_path": str(config_path),
         }
@@ -167,7 +217,7 @@ if submitted:
         st.session_state.decision_trail = [
             {
                 "step": "query_input",
-                "label": f"Query started ({rat})",
+                "label": f"Query started ({rat}, {st.session_state.selected_llm_label})",
                 "details": str(test_description).strip(),
             }
         ]

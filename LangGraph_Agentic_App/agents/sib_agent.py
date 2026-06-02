@@ -1,23 +1,21 @@
 """SIB message extraction agent using ReAct pattern."""
 from __future__ import annotations
 
+from functools import lru_cache
 import json
-import os
 from typing import Annotated
 
-from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
-from langchain_ollama import ChatOllama
 
-from config import LLM_MODEL
+from core.llm import get_llm
 from core.prompts import SIB_AGENT_SYSTEM_PROMPT
 from tools.sib_tools import lookup_sib_combination, sib_lookup_table_text
 
 
-def create_sib_agent():
+@lru_cache(maxsize=8)
+def create_sib_agent(llm_provider: str, llm_model: str):
     """Create a ReAct agent for SIB message extraction."""
-    # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
+    llm = get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
     
     tools = [lookup_sib_combination, sib_lookup_table_text]
     
@@ -27,9 +25,6 @@ def create_sib_agent():
         prompt=SIB_AGENT_SYSTEM_PROMPT,
     )
     return agent
-
-
-_sib_agent = create_sib_agent()
 
 
 def _coerce_agent_output_to_messages(raw_content: object, default_cell_id: str) -> list[dict]:
@@ -79,6 +74,8 @@ def run_sib_agent(
     rat: str,
     combination: str,
     cell_id: str,
+    llm_provider: str = "",
+    llm_model: str = "",
     max_iterations: int = 10,
 ) -> list[dict]:
     """Run the SIB agent to extract SIB messages for a given combination.
@@ -104,8 +101,9 @@ Return ONLY the list of message dicts, no explanation.
 """
 
     try:
+        sib_agent = create_sib_agent(llm_provider, llm_model)
         # Invoke agent (returns {'output': <result>})
-        result = _sib_agent.invoke(
+        result = sib_agent.invoke(
             {"messages": [{"role": "user", "content": prompt}]},
             config={"recursion_limit": max_iterations},
         )

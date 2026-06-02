@@ -1,16 +1,14 @@
 """Context selection and ranking agent."""
 from __future__ import annotations
 
+from functools import lru_cache
 import json
-import os
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.tools import tool
-from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from config import LLM_MODEL, AGENT_MAX_RETRIES
+from config import AGENT_MAX_RETRIES
+from core.llm import get_llm, resolve_llm_config
 from core.prompts import CONTEXT_SHORTLIST_AGENT_SYSTEM_PROMPT
 from tools.extraction_tool import generate_context_fields_json
 
@@ -32,9 +30,17 @@ def rank_contexts(
         Dict with selected_option_indices (list of ints)
     """
     from core.prompts import CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT
-    
-    # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
+
+    try:
+        query_config = json.loads(query_config_json)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        query_config = {}
+
+    llm_provider, llm_model = resolve_llm_config(
+        query_config.get("llm_provider"),
+        query_config.get("llm_model"),
+    )
+    llm = get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
     
     prompt = CONTEXT_OPTION_INDEX_SHORTLIST_PROMPT.format(
         query_config=query_config_json,
@@ -51,11 +57,10 @@ def rank_contexts(
         return {"selected_option_indices": []}
 
 
-def create_shortlist_agent():
+@lru_cache(maxsize=8)
+def create_shortlist_agent(llm_provider: str, llm_model: str):
     """Create a ReAct agent for context shortlisting."""
-    # llm = ChatOllama(model=LLM_MODEL, base_url="https://api.ollama.com", temperature=0.1)
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0.1, api_key=os.getenv("OPENAI_API_KEY", ""))
-    # llm = ChatAnthropic(model=LLM_MODEL, temperature=0.1)
+    llm = get_llm(provider=llm_provider, model=llm_model, temperature=0.1)
     
     tools = [rank_contexts]
     
@@ -67,14 +72,13 @@ def create_shortlist_agent():
     return agent
 
 
-_shortlist_agent = create_shortlist_agent()
-
-
 def run_shortlist_agent(
     raw_contexts: list[str],
     raw_source_docs: list[str],
     query_config: dict,
     question: str,
+    llm_provider: str = "",
+    llm_model: str = "",
     max_iterations: int = 10,
 ) -> dict:
     """Run the shortlist agent to filter and extract context fields.
@@ -119,9 +123,14 @@ Candidate contexts:
 
 Use the rank_contexts tool to select the relevant ones.
 """
+    shortlist_provider, shortlist_model = resolve_llm_config(
+        llm_provider or query_config.get("llm_provider"),
+        llm_model or query_config.get("llm_model"),
+    )
     
     try:
-        ranking_result = _shortlist_agent.invoke(
+        shortlist_agent = create_shortlist_agent(shortlist_provider, shortlist_model)
+        ranking_result = shortlist_agent.invoke(
             {"messages": [{"role": "user", "content": prompt}]},
             config={"recursion_limit": max_iterations},
         )
@@ -160,7 +169,12 @@ Use the rank_contexts tool to select the relevant ones.
         source_doc = raw_source_docs[raw_idx] if raw_idx < len(raw_source_docs) else ""
 
         # Extract context JSON with retry
-        context_json = _extract_context_with_retry(ctx, max_retries=AGENT_MAX_RETRIES)
+        context_json = _extract_context_with_retry(
+            ctx,
+            llm_provider=shortlist_provider,
+            llm_model=shortlist_model,
+            max_retries=AGENT_MAX_RETRIES,
+        )
 
         enhanced = {
             "option_index": display_idx,
@@ -187,11 +201,20 @@ Use the rank_contexts tool to select the relevant ones.
     }
 
 
-def _extract_context_with_retry(context: str, max_retries: int = 3) -> dict:
+def _extract_context_with_retry(
+    context: str,
+    llm_provider: str = "",
+    llm_model: str = "",
+    max_retries: int = 3,
+) -> dict:
     """Extract context fields with JSON parse retry."""
     for attempt in range(max_retries):
         try:
-            context_json = generate_context_fields_json.invoke({"context": context})
+            context_json = generate_context_fields_json.invoke({
+                "context": context,
+                "llm_provider": llm_provider,
+                "llm_model": llm_model,
+            })
             if isinstance(context_json, dict):
                 return context_json
         except Exception as e:
