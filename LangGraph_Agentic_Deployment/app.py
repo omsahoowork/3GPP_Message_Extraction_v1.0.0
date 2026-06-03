@@ -83,6 +83,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
+st.caption("Describe a test scenario and let the AI generate the expected message sequence along with a sequence diagram.")
 
 MODEL_CHOICES: dict[str, dict[str, str]] = {
     "GPT 5.2": {
@@ -160,8 +162,7 @@ if not active_key:
     st.info(f"Please choose a model and enter the matching {active_choice['key_label']} above to load the application.")
     st.stop()
 
-st.title("AI Based 3GPP Conformance Test Message Sequence Generator")
-st.caption("Describe a test scenario and let the AI generate the expected message sequence along with a sequence diagram.")
+
 
 with st.form("query_form", clear_on_submit=False):
     test_description = st.text_area(
