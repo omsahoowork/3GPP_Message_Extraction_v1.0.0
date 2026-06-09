@@ -5,7 +5,7 @@ from functools import lru_cache
 import json
 from typing import Annotated
 
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from core.llm import get_llm
 from core.prompts import SIB_AGENT_SYSTEM_PROMPT
@@ -19,10 +19,10 @@ def create_sib_agent(llm_provider: str, llm_model: str):
     
     tools = [lookup_sib_combination, sib_lookup_table_text]
     
-    agent = create_react_agent(
+    agent = create_agent(
         llm,
         tools,
-        prompt=SIB_AGENT_SYSTEM_PROMPT,
+        system_prompt=SIB_AGENT_SYSTEM_PROMPT,
     )
     return agent
 

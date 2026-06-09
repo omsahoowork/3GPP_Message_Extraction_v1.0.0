@@ -5,7 +5,7 @@ from functools import lru_cache
 import json
 
 from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from config import AGENT_MAX_RETRIES
 from core.llm import get_llm, resolve_llm_config
@@ -64,10 +64,10 @@ def create_shortlist_agent(llm_provider: str, llm_model: str):
     
     tools = [rank_contexts]
     
-    agent = create_react_agent(
+    agent = create_agent(
         llm,
         tools,
-        prompt=CONTEXT_SHORTLIST_AGENT_SYSTEM_PROMPT,
+        system_prompt=CONTEXT_SHORTLIST_AGENT_SYSTEM_PROMPT,
     )
     return agent
 

@@ -7,7 +7,7 @@ import re
 from typing import Annotated
 
 from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from core.llm import get_llm
 from core.prompts import UE_TRANSITION_AGENT_SYSTEM_PROMPT, NR_RRC_TABLE_MESSAGE_PROMPT, LTE_TRANSITION_TABLE_MESSAGE_PROMPT
@@ -49,10 +49,10 @@ def create_ue_transition_agent(llm_provider: str, llm_model: str):
     
     tools = [get_ue_state_loop_path, retrieve_state_transition_context, extract_messages_from_context]
     
-    agent = create_react_agent(
+    agent = create_agent(
         llm,
         tools,
-        prompt=UE_TRANSITION_AGENT_SYSTEM_PROMPT,
+        system_prompt=UE_TRANSITION_AGENT_SYSTEM_PROMPT,
     )
     return agent
 
